@@ -95,12 +95,12 @@
     display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:22px;
     flex:1 1 100%; width:100%; align-items:start;
   }
-  .total-stat{display:flex; flex-direction:column; gap:2px; min-width:0; align-self:start;}
+  .total-stat{display:flex; flex-direction:column; gap:6px; min-width:0; align-self:start; align-items:center; text-align:center;}
   .total-stat .num{
-    font-family:"IBM Plex Mono",monospace; font-variant-numeric:tabular-nums; font-size:22px; font-weight:600;
+    font-family:"IBM Plex Mono",monospace; font-variant-numeric:tabular-nums; font-size:22px; font-weight:600; line-height:1.1; min-height:24px;
     color:var(--ink);
   }
-  .total-stat .lbl{font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-soft);}
+  .total-stat .lbl{font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-soft); min-height:2.4em; display:flex; align-items:flex-start; justify-content:center;}
   .total-stat-primary .num{color:var(--brass-strong); font-size:26px;}
   .total-stat-primary .num-max{color:var(--ink-soft); font-size:15px; font-weight:500;}
   .total-stat-primary .lbl{color:var(--brass);}
