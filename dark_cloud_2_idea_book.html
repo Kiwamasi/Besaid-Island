@@ -487,8 +487,10 @@ function panelHtml(ch){
 }
 
 function badgesPanelHtml(){
-  const core = DATA.badges.filter(b=>b.core);
-  const other = DATA.badges.filter(b=>!b.core);
+  const badgeOrder = {"b-0":1,"b-3":2,"b-2":3,"b-4":4,"b-6":5,"b-8":6,"b-7":7,"b-9":8,"b-1":9,"b-5":10,"b-10":11,"b-11":12};
+  const sortBadges = badges => badges.slice().sort((a,b) => badgeOrder[a.id] - badgeOrder[b.id]);
+  const core = sortBadges(DATA.badges.filter(b=>b.core));
+  const other = sortBadges(DATA.badges.filter(b=>!b.core));
   const card = b => {
     const checked = !!state.checked[b.id];
     return `<div class="badge-card ${b.m?'missable ':''}${checked?'done':''}" data-row="${b.id}">
