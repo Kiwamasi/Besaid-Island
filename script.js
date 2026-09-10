@@ -9,6 +9,30 @@
 // Wait for the DOM to finish loading before running anything.
 document.addEventListener('DOMContentLoaded', () => {
 
+  const gameCard = document.querySelector('.game-card');
+
+  if (gameCard) {
+    gameCard.addEventListener('pointerenter', () => {
+      gameCard.style.removeProperty('transform');
+      gameCard.classList.add('is-hovering');
+    });
+
+    gameCard.addEventListener('pointerleave', () => {
+      const currentTransform = getComputedStyle(gameCard).transform;
+
+      gameCard.classList.remove('is-hovering');
+      gameCard.style.transform = currentTransform;
+
+      requestAnimationFrame(() => {
+        gameCard.style.transform = 'translateY(0)';
+      });
+
+      gameCard.addEventListener('transitionend', () => {
+        gameCard.style.removeProperty('transform');
+      }, { once: true });
+    });
+  }
+
   // TODO: Wire up nav links once real pages/sections exist.
   // e.g. smooth-scroll to sections, or handle client-side routing.
 
