@@ -1,4 +1,4 @@
-<title>Idea Book</title>
+<title>Dark Cloud 2 Log</title>
 <link rel="icon" href="favicon.ico" type="image/x-icon">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
 <style>
@@ -86,7 +86,7 @@
   }
   .masthead-title{display:flex; flex-direction:column; gap:4px;}
   .kicker{
-    font-family:"IBM Plex Mono", monospace; font-size:11px; letter-spacing:.14em; text-transform:uppercase;
+    font-family:"IBM Plex Mono", monospace; font-size:16px; letter-spacing:.14em; text-transform:uppercase;
     color:var(--brass); font-weight:600;
   }
   h1{font-size:clamp(28px,5vw,40px); font-optical-sizing:auto; font-variation-settings:"opsz" 40;}
@@ -159,12 +159,37 @@
   .group-head h2{font-size:19px;}
   .group-head .ptip{font-size:11.5px; color:var(--ink-soft); font-family:"IBM Plex Mono",monospace;}
 
+  .group-toggle{
+    width:100%; border:0; background:none; padding:0; margin:0; cursor:pointer; text-align:left;
+    color:inherit; font:inherit;
+  }
+  .group-toggle .group-head{margin-bottom:0;}
+  .group-toggle .group-head h2::after{content:"▾"; margin-left:8px; font-size:14px; color:var(--brass); display:inline-block;}
+  .group.collapsed .group-toggle .group-head h2::after{content:"▸";}
+  .group-content{display:block;}
+  .group.collapsed .group-content{display:none;}
+
   .rows{display:flex; flex-direction:column; gap:6px;}
   .subhead{
     font-family:"IBM Plex Mono",monospace; font-size:10.5px; letter-spacing:.08em; text-transform:uppercase;
     color:var(--ink-soft); margin:12px 0 2px; padding-top:6px; border-top:1px dashed var(--line);
   }
   .rows > .subhead:first-child{border-top:none; padding-top:0; margin-top:0;}
+
+  .area-group{margin-top:4px;}
+  .area-toggle{
+    width:100%; border:0; background:none; padding:0; margin:0; cursor:pointer; text-align:left;
+    color:inherit; font:inherit;
+  }
+  .area-toggle .subhead{
+    display:flex; align-items:center; justify-content:space-between; gap:8px; width:100%;
+    margin:0; padding:8px 10px; border:1px solid var(--line); border-radius:7px; background:var(--bg-raised); box-shadow:var(--shadow);
+    cursor:pointer;
+  }
+  .area-toggle .subhead::after{content:"▾"; font-size:12px; color:var(--brass);}
+  .area-group.collapsed .area-toggle .subhead::after{content:"▸";}
+  .area-content{display:block; padding-top:6px;}
+  .area-group.collapsed .area-content{display:none;}
 
   .row{
     display:flex; gap:10px; align-items:flex-start; padding:8px 10px; border-radius:7px;
@@ -312,8 +337,7 @@
 <div class="wrap">
   <div class="masthead">
     <div class="masthead-title">
-      <span class="kicker">Dark Cloud 2 · Photography &amp; Georama Log</span>
-      <h1>Idea Book</h1>
+      <span class="kicker">Dark Cloud 2 · Photography &amp; Scoop Log</span>
       <p class="subtitle">Every Scoop and Idea, chapter by chapter — tick them off as you shoot. Red means it's missable.</p>
     </div>
     <div class="totals" id="totals"></div>
@@ -380,11 +404,19 @@ const CHAPTER_LABELS = {
   7:"Moon Flower Palace", 8:"Zelmite Mine (post‑game)"
 };
 
-let state = { checked: {} };
+let state = { checked: {}, collapsedAreas: {}, collapsedGroups: {} };
 let activeTab = "1";
 
 function esc(s){
-  return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  return String(s).replace(/[&<>\"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+function normalizeState(base){
+  const next = base || { checked: {}, collapsedAreas: {}, collapsedGroups: {} };
+  next.checked = next.checked || {};
+  next.collapsedAreas = next.collapsedAreas || {};
+  next.collapsedGroups = next.collapsedGroups || {};
+  return next;
 }
 
 function allItems(){
@@ -470,19 +502,38 @@ function panelHtml(ch){
   const pct = cs.total ? Math.round(cs.done/cs.total*100) : 0;
   const scoopRows = ch.scoops.map(rowHtml).join('');
   const ideaGroups = groupIdeasByLocation(ch.ideas);
-  const ideaRows = ideaGroups.map(g => `<div class="subhead">${esc(g.loc)}</div>` + g.items.map(rowHtml).join('')).join('');
+  const ideaRows = ideaGroups.map(g => {
+    const key = `${ch.ch}:${g.loc}`;
+    const collapsed = !!state.collapsedAreas[key];
+    return `<div class="area-group ${collapsed ? 'collapsed' : ''}">
+      <button type="button" class="area-toggle" data-area-key="${esc(key)}" aria-expanded="${collapsed ? 'false' : 'true'}">
+        <div class="subhead">${esc(g.loc)}</div>
+      </button>
+      <div class="area-content">${g.items.map(rowHtml).join('')}</div>
+    </div>`;
+  }).join('');
+  const scoopCollapsed = !!state.collapsedGroups[`${ch.ch}:scoops`];
+  const ideaCollapsed = !!state.collapsedGroups[`${ch.ch}:ideas`];
   return `<div class="panel" id="panel-${ch.ch}" role="tabpanel">
     <div class="chapter-progress">
       <div class="bar"><i style="width:${pct}%"></i></div>
       <span class="fig">${cs.done}/${cs.total} logged · ${cs.pts} pts out of ${cs.maxPts}</span>
     </div>
-    <section class="group">
-      <div class="group-head"><h2>Scoops</h2><span class="ptip">${SCOOP_POINTS} pts each · ${ch.scoops.length} in this chapter</span></div>
-      <div class="rows">${scoopRows || '<p style="color:var(--ink-soft);font-size:13px;">No scoops recorded for this chapter.</p>'}</div>
+    <section class="group ${scoopCollapsed ? 'collapsed' : ''}">
+      <button type="button" class="group-toggle" data-group-key="${ch.ch}:scoops" aria-expanded="${scoopCollapsed ? 'false' : 'true'}">
+        <div class="group-head"><h2>Scoops</h2><span class="ptip">${SCOOP_POINTS} pts each · ${ch.scoops.length} in this chapter</span></div>
+      </button>
+      <div class="group-content">
+        <div class="rows">${scoopRows || '<p style="color:var(--ink-soft);font-size:13px;">No scoops recorded for this chapter.</p>'}</div>
+      </div>
     </section>
-    <section class="group">
-      <div class="group-head"><h2>Ideas</h2><span class="ptip">${IDEA_POINTS} pts each · unique ideas in this chapter</span></div>
-      <div class="rows">${ideaRows || '<p style="color:var(--ink-soft);font-size:13px;">No ideas recorded for this chapter.</p>'}</div>
+    <section class="group ${ideaCollapsed ? 'collapsed' : ''}">
+      <button type="button" class="group-toggle" data-group-key="${ch.ch}:ideas" aria-expanded="${ideaCollapsed ? 'false' : 'true'}">
+        <div class="group-head"><h2>Ideas</h2><span class="ptip">${IDEA_POINTS} pts each · unique ideas in this chapter</span></div>
+      </button>
+      <div class="group-content">
+        <div class="rows">${ideaRows || '<p style="color:var(--ink-soft);font-size:13px;">No ideas recorded for this chapter.</p>'}</div>
+      </div>
     </section>
   </div>`;
 }
@@ -545,6 +596,30 @@ function renderPanels(){
   });
   panelsEl.querySelectorAll('input[type="checkbox"]').forEach(cb=>{
     cb.addEventListener('change', onToggle);
+  });
+  panelsEl.querySelectorAll('.group-toggle').forEach(btn=>{
+    btn.addEventListener('click', () => {
+      const key = btn.dataset.groupKey;
+      const group = btn.closest('.group');
+      if(!group) return;
+      const collapsed = group.classList.toggle('collapsed');
+      btn.setAttribute('aria-expanded', String(!collapsed));
+      state.collapsedGroups[key] = collapsed;
+      saveLocalState();
+      schedulePublish();
+    });
+  });
+  panelsEl.querySelectorAll('.area-toggle').forEach(btn=>{
+    btn.addEventListener('click', () => {
+      const key = btn.dataset.areaKey;
+      const area = btn.closest('.area-group');
+      if(!area) return;
+      const collapsed = area.classList.toggle('collapsed');
+      btn.setAttribute('aria-expanded', String(!collapsed));
+      state.collapsedAreas[key] = collapsed;
+      saveLocalState();
+      schedulePublish();
+    });
   });
 }
 
@@ -672,17 +747,17 @@ function readEmbeddedState(){
     const embedded = document.getElementById('state-data');
     if(embedded && embedded.textContent.trim()){ return JSON.parse(embedded.textContent); }
   }catch(e){}
-  return {checked:{}};
+  return {checked:{}, collapsedAreas:{}, collapsedGroups:{}};
 }
 
 function start(hotData){
   ORIGINAL_DOC = "<!doctype html>\n" + document.documentElement.outerHTML;
   restoreTabFromSession();
-  state = (hotData && hotData.checked) ? hotData : (readLocalState() || readEmbeddedState());
+  state = normalizeState((hotData && hotData.checked) ? hotData : (readLocalState() || readEmbeddedState()));
   renderAll();
   document.getElementById('resetBtn').addEventListener('click', ()=>{
     if(confirm('Clear every checkmark in this Idea Book? This cannot be undone.')){
-      state = {checked:{}};
+      state = {checked:{}, collapsedAreas:{}, collapsedGroups:{}};
       saveLocalState();
       renderAll();
       schedulePublish();
