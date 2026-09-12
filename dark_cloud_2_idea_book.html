@@ -191,6 +191,12 @@
   .area-content{display:block; padding-top:6px;}
   .area-group.collapsed .area-content{display:none;}
 
+  .area-group.all-done .area-toggle .subhead{
+    background:var(--ok-tint); border-color:color-mix(in srgb, var(--ok) 45%, var(--line));
+    box-shadow:0 0 10px rgba(143, 184, 150, 0.35);
+  }
+  .area-group.all-done .area-toggle .subhead::after{color:var(--ok-strong);}
+
   .row{
     display:flex; gap:10px; align-items:flex-start; padding:8px 10px; border-radius:7px;
     background:var(--bg-raised); border:1px solid var(--line); box-shadow:var(--shadow);
@@ -446,6 +452,39 @@ DATA.chapters.forEach(ch => ch.ideas.forEach(idea => {
 }));
 const CANONICAL_IDEA_LIST = Object.values(CANONICAL_IDEAS);
 
+// Same-name idea duplicates (e.g. "Lamp" showing up at several locations),
+// grouped per chapter only. Scoped to one chapter so syncing their checked
+// state can never change chapterStats/computeStats point totals — those
+// already treat the group as "done" once any single id in it is checked.
+const CHAPTER_IDEA_GROUPS = {};
+DATA.chapters.forEach(ch => {
+  const map = {};
+  ch.ideas.forEach(idea => {
+    const key = ideaKey(idea);
+    if(!map[key]) map[key] = [];
+    map[key].push(idea.id);
+  });
+  CHAPTER_IDEA_GROUPS[ch.ch] = map;
+});
+
+function duplicateIdeaIds(item){
+  if(!item || item.kind !== "idea") return [item && item.id].filter(Boolean);
+  const group = (CHAPTER_IDEA_GROUPS[item.ch] || {})[ideaKey(item)];
+  return group || [item.id];
+}
+
+// Fills in siblings for anything already checked. Only ever adds checks,
+// never removes one, so existing saved progress is never undone.
+function syncDuplicateIdeas(){
+  Object.values(CHAPTER_IDEA_GROUPS).forEach(map => {
+    Object.values(map).forEach(ids => {
+      if(ids.some(id => state.checked[id])){
+        ids.forEach(id => { state.checked[id] = true; });
+      }
+    });
+  });
+}
+
 function pointsFor(it){ return it.kind === "scoop" ? SCOOP_POINTS : it.kind === "idea" ? IDEA_POINTS : 0; }
 
 function computeStats(){
@@ -505,7 +544,8 @@ function panelHtml(ch){
   const ideaRows = ideaGroups.map(g => {
     const key = `${ch.ch}:${g.loc}`;
     const collapsed = !!state.collapsedAreas[key];
-    return `<div class="area-group ${collapsed ? 'collapsed' : ''}">
+    const allDone = g.items.every(it => !!state.checked[it.id]);
+    return `<div class="area-group ${collapsed ? 'collapsed' : ''} ${allDone ? 'all-done' : ''}">
       <button type="button" class="area-toggle" data-area-key="${esc(key)}" aria-expanded="${collapsed ? 'false' : 'true'}">
         <div class="subhead">${esc(g.loc)}</div>
       </button>
@@ -644,11 +684,31 @@ function readLocalState(){
   return null;
 }
 
+function updateRowDom(id){
+  const checked = !!state.checked[id];
+  const row = document.querySelector(`[data-row="${id}"]`);
+  if(row) row.classList.toggle('done', checked);
+  const cb = document.getElementById(`cb-${id}`);
+  if(cb) cb.checked = checked;
+}
+
+function updateAreaHighlights(){
+  document.querySelectorAll('.area-group').forEach(group => {
+    const rows = group.querySelectorAll('.area-content [data-row]');
+    const allDone = rows.length > 0 && Array.from(rows).every(r => r.classList.contains('done'));
+    group.classList.toggle('all-done', allDone);
+  });
+}
+
 function onToggle(e){
   const id = e.target.dataset.id;
-  if(e.target.checked){ state.checked[id] = true; } else { delete state.checked[id]; }
-  const row = e.target.closest('[data-row]');
-  if(row) row.classList.toggle('done', e.target.checked);
+  const checked = e.target.checked;
+  const idsToSync = duplicateIdeaIds(ITEMS_BY_ID[id]);
+  idsToSync.forEach(gid => {
+    if(checked){ state.checked[gid] = true; } else { delete state.checked[gid]; }
+    updateRowDom(gid);
+  });
+  updateAreaHighlights();
   renderTotals();
   renderTabCounts();
   saveLocalState();
@@ -754,6 +814,7 @@ function start(hotData){
   ORIGINAL_DOC = "<!doctype html>\n" + document.documentElement.outerHTML;
   restoreTabFromSession();
   state = normalizeState((hotData && hotData.checked) ? hotData : (readLocalState() || readEmbeddedState()));
+  syncDuplicateIdeas();
   renderAll();
   document.getElementById('resetBtn').addEventListener('click', ()=>{
     if(confirm('Clear every checkmark in this Idea Book? This cannot be undone.')){
