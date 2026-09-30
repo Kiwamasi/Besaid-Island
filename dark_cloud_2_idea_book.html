@@ -334,6 +334,7 @@
   <nav class="site-nav" aria-label="Main navigation">
     <ul>
       <li><a href="index.html">Home</a></li>
+      <li><a href="backlog.html">Backlog</a></li>
       <li><a href="#">Portfolio</a></li>
       <li><a href="#">Contact</a></li>
     </ul>
@@ -528,10 +529,16 @@ function rowHtml(it){
 }
 
 function groupIdeasByLocation(ideas){
-  const groups = []; let cur = null;
+  // Group by exact location name across the whole chapter, not just
+  // consecutive entries — some chapters list the same location more than
+  // once out of order (e.g. Chapter 1's alphabetized "missing ideas" list
+  // splits "Max's House" into several places), which used to render as
+  // duplicate dropdown headers for the same spot.
+  const groups = []; const byLoc = new Map();
   ideas.forEach(idea=>{
-    if(!cur || cur.loc !== idea.l){ cur = {loc:idea.l, items:[]}; groups.push(cur); }
-    cur.items.push(idea);
+    let group = byLoc.get(idea.l);
+    if(!group){ group = {loc:idea.l, items:[]}; byLoc.set(idea.l, group); groups.push(group); }
+    group.items.push(idea);
   });
   return groups;
 }

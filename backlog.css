@@ -1,0 +1,300 @@
+:root {
+  --backlog-ink: #f1f0eb;
+  --backlog-muted: #b8b9b0;
+  --backlog-line: rgba(225, 222, 207, 0.18);
+  --backlog-brass: #d1b77b;
+  --backlog-panel: #222623;
+}
+
+.backlog-main {
+  padding: 1.5rem 2rem 3rem;
+  background:
+    radial-gradient(ellipse at 12% 4%, rgba(126, 139, 116, 0.12), transparent 38rem),
+    #292c2a;
+}
+
+.backlog-shell {
+  width: min(100%, 1040px);
+  margin: 0 auto;
+}
+
+.backlog-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 2rem;
+  padding: 0.6rem 0 1rem;
+  border-bottom: 1px solid var(--backlog-line);
+}
+
+.backlog-kicker {
+  margin-bottom: 0.6rem;
+  color: var(--backlog-brass);
+  font-size: 0.75rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.backlog-heading h1,
+.dialog-heading h2 {
+  color: var(--backlog-ink);
+  font-family: 'Cinzel', Georgia, serif;
+  font-weight: 400;
+}
+
+.backlog-heading h1 {
+  font-size: 1.8rem;
+  line-height: 1.15;
+}
+
+.add-game,
+.cancel-button,
+.dialog-close,
+.remove-game {
+  font: inherit;
+  cursor: pointer;
+}
+
+.add-game {
+  flex: 0 0 auto;
+  border: 1px solid var(--backlog-brass);
+  border-radius: 3px;
+  padding: 0.5rem 0.75rem;
+  background: var(--backlog-brass);
+  color: #24251f;
+  font-weight: 600;
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.add-game:hover {
+  background: #e4d3a7;
+}
+
+.add-game:disabled,
+.remove-game:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.backlog-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--backlog-line);
+}
+
+.search-field input,
+.form-field input,
+.form-field select,
+.form-field textarea {
+  border: 1px solid var(--backlog-line);
+  border-radius: 3px;
+  background: #1e211f;
+  color: var(--backlog-ink);
+  font: inherit;
+}
+
+.search-field input {
+  width: min(15rem, 28vw);
+  padding: 0.45rem 0.6rem;
+  font-size: 0.85rem;
+}
+
+.search-field input::placeholder,
+.form-field input::placeholder,
+.form-field textarea::placeholder {
+  color: #8e9188;
+}
+
+.game-list {
+  list-style: none;
+}
+
+.game-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 0.7rem 0;
+  border-bottom: 1px solid var(--backlog-line);
+  animation: entry-in 280ms ease both;
+}
+
+.game-entry h2 {
+  color: var(--backlog-ink);
+  font-family: Georgia, serif;
+  font-size: 0.98rem;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+
+.game-entry-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.8rem;
+  margin-top: 0.2rem;
+  color: var(--backlog-muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.game-entry-meta .platform {
+  color: var(--backlog-brass);
+}
+
+.game-entry-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.remove-game {
+  border: 0;
+  padding: 0.45rem 0;
+  background: transparent;
+  color: #b6a39a;
+  font-size: 0.78rem;
+}
+
+.remove-game:hover {
+  color: #f0a58f;
+}
+
+.empty-state {
+  padding: 2.5rem 1rem;
+  text-align: center;
+}
+
+.empty-state p {
+  color: var(--backlog-ink);
+  font-size: 0.9rem;
+}
+
+.save-note {
+  padding-top: 0.5rem;
+  color: #91948b;
+  font-size: 0.75rem;
+  text-align: right;
+}
+
+.game-dialog {
+  width: min(calc(100% - 2rem), 32rem);
+  max-height: min(90vh, 48rem);
+  margin: auto;
+  border: 1px solid rgba(225, 222, 207, 0.25);
+  border-radius: 5px;
+  padding: 1.1rem;
+  background: #292c2a;
+  color: var(--backlog-ink);
+  box-shadow: 0 24px 90px rgba(0, 0, 0, 0.55);
+}
+
+.game-dialog::backdrop {
+  background: rgba(9, 11, 10, 0.74);
+  backdrop-filter: blur(3px);
+}
+
+.dialog-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.35rem;
+}
+
+.dialog-heading .backlog-kicker {
+  margin-bottom: 0.35rem;
+}
+
+.dialog-heading h2 {
+  font-size: 1.45rem;
+}
+
+.dialog-close {
+  width: 2rem;
+  aspect-ratio: 1;
+  border: 1px solid var(--backlog-line);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--backlog-ink);
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+.form-field {
+  display: grid;
+  gap: 0.4rem;
+  margin-top: 0.7rem;
+  color: var(--backlog-ink);
+  font-size: 0.85rem;
+}
+
+.form-field small {
+  margin-left: 0.25rem;
+  color: var(--backlog-muted);
+}
+
+.form-field input,
+.form-field select,
+.form-field textarea {
+  width: 100%;
+  padding: 0.55rem 0.65rem;
+  font-size: 0.9rem;
+}
+
+.form-field textarea {
+  resize: vertical;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+
+.cancel-button {
+  border: 1px solid var(--backlog-line);
+  border-radius: 3px;
+  padding: 0.65rem 0.9rem;
+  background: transparent;
+  color: var(--backlog-ink);
+}
+
+.backlog-main :focus-visible,
+.game-dialog :focus-visible {
+  outline: 2px solid #e3ca91;
+  outline-offset: 3px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
+@keyframes entry-in {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}
+
+@media (max-width: 720px) {
+  .backlog-main { padding: 1.25rem 1rem 2rem; }
+  .backlog-heading { align-items: flex-start; flex-direction: column; gap: 1.25rem; }
+  .backlog-heading .add-game { align-self: flex-start; }
+  .backlog-controls { align-items: stretch; flex-direction: column; }
+  .search-field input { width: 100%; }
+  .game-entry { grid-template-columns: minmax(0, 1fr); gap: 0.8rem; }
+  .game-entry-controls { justify-content: space-between; }
+}
+
