@@ -59,14 +59,19 @@
 
 .account-name {
   color: var(--backlog-brass);
+  font-family: 'IBM Plex Sans', Arial, sans-serif;
   font-size: 0.82rem;
   white-space: nowrap;
 }
 
 .account-actions {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
   display: flex;
   align-items: center;
   gap: 0.25rem;
+  white-space: nowrap;
 }
 
 .add-game {
@@ -279,7 +284,25 @@
   overflow-wrap: anywhere;
 }
 
+.login-message[data-state="error"] {
+  border-left-color: #f0a58f;
+  background: rgba(226, 109, 90, 0.12);
+  color: #ffd2c8;
+}
+
+.login-message[data-state="success"] {
+  border-left-color: #a7c1a8;
+  background: rgba(143, 184, 150, 0.12);
+  color: #d9eadb;
+}
+
+.login-message[data-state="pending"] {
+  border-left-color: var(--backlog-brass);
+}
+
 .login-dialog input {
+  font-family: 'IBM Plex Sans', Arial, sans-serif;
+  font-variant-caps: normal;
   text-transform: none !important;
 }
 
@@ -384,9 +407,10 @@
 @media (max-width: 720px) {
   .backlog-main { padding: 1.25rem 1rem 2rem; }
   .account-actions { gap: 0.3rem; }
-  .account-name { font-size: 0.72rem; }
+  .account-name { font-size: 0.62rem; }
   .login-button,
-  .logout-button { padding-inline: 0.45rem; font-size: 0.72rem; }
+  .logout-button { padding-inline: 0.35rem; font-size: 0.62rem; }
+  .backlog-site-header .login-button { padding-inline: 0.35rem; font-size: 0.62rem; }
   .backlog-heading { align-items: flex-start; flex-direction: column; gap: 1.25rem; }
   .backlog-heading .add-game { align-self: flex-start; }
   .backlog-controls { align-items: stretch; flex-direction: column; }

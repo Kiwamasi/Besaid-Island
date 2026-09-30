@@ -71,7 +71,9 @@ function setSignedIn(user) {
   document.getElementById('loginButton').hidden = Boolean(user);
   document.getElementById('logoutButton').hidden = !user;
   accountName.hidden = !user;
-  accountName.textContent = user ? `${user.username} |` : '';
+  accountName.textContent = user
+    ? `${user.username}${user.canEdit ? ' | Admin' : ''} |`
+    : '';
   render();
 }
 
@@ -165,12 +167,20 @@ document.getElementById('loginButton').addEventListener('click', () => {
   loginForm.elements.username.focus();
 });
 document.getElementById('loginClose').addEventListener('click', () => loginDialog.close());
+loginDialog.addEventListener('click', event => {
+  if (event.target === loginDialog) loginDialog.close();
+});
 document.getElementById('closeDialog').addEventListener('click', () => dialog.close());
 document.getElementById('cancelDialog').addEventListener('click', () => dialog.close());
 document.getElementById('logoutButton').addEventListener('click', () => {
   endSession('Signed out. The shared backlog remains viewable.');
 });
 searchInput.addEventListener('input', render);
+window.addEventListener('storage', event => {
+  if (event.key !== SESSION_KEY) return;
+  sessionToken = event.newValue;
+  loadGames();
+});
 
 function setAuthMode(mode) {
   authMode = mode;
@@ -190,6 +200,7 @@ function setAuthMode(mode) {
   loginMessage.textContent = mode === 'register'
     ? 'Accounts can view the shared list. Only admins can edit it.'
     : '';
+  loginMessage.dataset.state = '';
 }
 
 document.querySelectorAll('[data-auth-mode]').forEach(button => {
@@ -204,37 +215,56 @@ loginForm.addEventListener('submit', async event => {
   event.preventDefault();
   const submitButton = document.getElementById('loginSubmit');
   const values = new FormData(loginForm);
+  const username = String(values.get('username') || '').trim();
+  const password = String(values.get('password') || '');
+  if (!/^[A-Za-z0-9_-]{3,24}$/.test(username)) {
+    loginMessage.dataset.state = 'error';
+    loginMessage.textContent = 'Username must be 3–24 letters, numbers, underscores, or hyphens.';
+    loginForm.elements.username.focus();
+    return;
+  }
+  if (!password || password.length > 128) {
+    loginMessage.dataset.state = 'error';
+    loginMessage.textContent = 'Enter a password of 1–128 characters.';
+    loginForm.elements.password.focus();
+    return;
+  }
+
   submitButton.disabled = true;
   const actionLabel = authMode === 'register' ? 'Account creation' : 'Sign-in';
   loginMessage.textContent = authMode === 'register' ? 'Creating account…' : 'Signing in…';
+  loginMessage.dataset.state = 'pending';
   saveNote.textContent = loginMessage.textContent;
 
   try {
     const result = await apiRequest('POST', {
       action: authMode,
-      username: String(values.get('username') || ''),
-      password: String(values.get('password') || '')
+      username,
+      password
     });
     const createdAccount = authMode === 'register';
     sessionToken = result.token;
     localStorage.setItem(SESSION_KEY, sessionToken);
     loginForm.reset();
     setSignedIn(result.user);
-    await loadGames();
     if (createdAccount) {
       document.querySelector('.auth-modes').hidden = true;
       loginForm.querySelectorAll('.form-field').forEach(field => { field.hidden = true; });
       loginMessage.textContent = 'Account created successfully. You are signed in with view-only access; only admins can edit the shared backlog.';
+      loginMessage.dataset.state = 'success';
       submitButton.type = 'button';
       submitButton.textContent = 'Done';
     } else {
       loginDialog.close();
+      saveNote.textContent = `Signed in as ${result.user.username}; refreshing backlog…`;
     }
+    loadGames();
   } catch (error) {
     loginForm.elements.password.value = '';
     const status = error.status ? ` (HTTP ${error.status})` : '';
     const message = `${actionLabel} failed${status}: ${error.message}`;
     loginMessage.textContent = message;
+    loginMessage.dataset.state = 'error';
     saveNote.textContent = message;
   } finally {
     submitButton.disabled = false;

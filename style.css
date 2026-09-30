@@ -16,15 +16,16 @@ header {
 }
 
 .site-header {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  gap: 0.75rem;
   height: 64px;
   padding: 0 24px;
 }
 
 .site-header .site-nav {
-  flex: 1;
+  grid-column: 2;
+  grid-row: 1;
 }
 
 nav ul {
@@ -53,12 +54,14 @@ nav a {
 }
 
 .site-account-link {
-  flex: 0 0 auto;
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
   border: 1px solid rgba(225, 222, 207, 0.24);
   border-radius: 3px;
   padding: 0.45rem 0.6rem;
   color: #f1f0eb;
-  font-family: 'Cinzel', serif;
+  font-family: 'IBM Plex Sans', Arial, sans-serif;
   font-size: 0.76rem;
   text-decoration: none;
   white-space: nowrap;
@@ -77,7 +80,6 @@ nav a:hover {
 
 @media (max-width: 520px) {
   .site-header {
-    gap: 0.45rem;
     padding-inline: 12px;
   }
 
@@ -91,7 +93,8 @@ nav a:hover {
 
   .site-account-link {
     padding: 0.4rem 0.45rem;
-    font-size: 0.66rem;
+    font-family: 'IBM Plex Sans', Arial, sans-serif;
+    font-size: 0.62rem;
   }
 }
 

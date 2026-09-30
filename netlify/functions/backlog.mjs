@@ -171,7 +171,7 @@ export default async (request) => {
       return respond(request, 200, {
         token: createSession(account.username),
         user: {
-          username: account.canEdit ? 'Admin' : account.username,
+          username: account.canEdit ? 'Kiwamari' : account.username,
           canEdit: account.canEdit
         }
       });
@@ -185,7 +185,7 @@ export default async (request) => {
       ));
       const session = getSession(request);
       const user = session ? {
-        username: session.canEdit ? 'Admin' : session.username,
+        username: session.canEdit ? 'Kiwamari' : session.username,
         canEdit: session.canEdit
       } : null;
       return respond(request, 200, { games: games.filter(Boolean), user });

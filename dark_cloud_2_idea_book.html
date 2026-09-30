@@ -305,16 +305,16 @@
   body{background:#292c2a; color:#ffffff;}
   .wrap{background:#292c2a;}
   .site-header{
-    display:flex;
+    display:grid;
+    grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);
     align-items:center;
-    gap:.75rem;
     height:64px;
     background:#1d201e;
     border-bottom:1px solid #3c413e;
     margin-inline:-16px;
     padding:0 24px;
   }
-  .site-nav{flex:1;}
+  .site-nav{grid-column:2;grid-row:1;}
   .site-nav ul{
     list-style:none;
     display:flex;
@@ -333,12 +333,14 @@
     transition:color .2s ease;
   }
   .site-account-link{
-    flex:0 0 auto;
+    grid-column:3;
+    grid-row:1;
+    justify-self:end;
     border:1px solid rgba(225,222,207,.24);
     border-radius:3px;
     padding:.45rem .6rem;
     color:#f1f0eb;
-    font-family:'Cinzel',Georgia,serif;
+    font-family:'IBM Plex Sans',Arial,sans-serif;
     font-size:.76rem;
     text-decoration:none;
     white-space:nowrap;
@@ -349,10 +351,10 @@
     color:#d1b77b;
   }
   @media(max-width:520px){
-    .site-header{gap:.45rem;padding-inline:12px;}
+    .site-header{padding-inline:12px;}
     .site-nav ul{gap:.7rem;}
     .site-nav a{font-size:.78rem;}
-    .site-account-link{padding:.4rem .45rem;font-size:.66rem;}
+    .site-account-link{padding:.4rem .45rem;font-size:.62rem;}
   }
   .site-nav a:hover,
   .site-nav a:focus-visible{color:#d1c9b5;}
@@ -366,7 +368,7 @@
       <li><a href="#">Contact</a></li>
     </ul>
   </nav>
-  <a class="site-account-link" href="backlog.html#account">Sign in / Create account</a>
+  <a class="site-account-link" data-shared-account href="backlog.html#account">Sign in / Create account</a>
 </header>
 
 <div class="wrap">
@@ -880,3 +882,5 @@ if(document.readyState === 'loading'){
 }
 </script>
 <script type="application/json" id="state-data">{"checked": {}}</script>
+<script src="backlog-config.js"></script>
+<script src="site-account.js"></script>
