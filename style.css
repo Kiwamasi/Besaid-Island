@@ -15,12 +15,29 @@ header {
   padding: 1rem 2rem;
 }
 
+.site-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  height: 64px;
+  padding: 0 24px;
+}
+
+.site-header .site-nav {
+  flex: 1;
+}
+
 nav ul {
   list-style: none;
   display: flex;
   justify-content: center;
   gap: 4rem;
   flex-wrap: wrap;
+}
+
+.site-header .site-nav ul {
+  gap: clamp(0.8rem, 3vw, 2.5rem);
+  flex-wrap: nowrap;
 }
 
 nav a {
@@ -30,12 +47,56 @@ nav a {
   transition: color 0.2s ease;
 }
 
+.site-header .site-nav a {
+  font-size: 1rem;
+  white-space: nowrap;
+}
+
+.site-account-link {
+  flex: 0 0 auto;
+  border: 1px solid rgba(225, 222, 207, 0.24);
+  border-radius: 3px;
+  padding: 0.45rem 0.6rem;
+  color: #f1f0eb;
+  font-family: 'Cinzel', serif;
+  font-size: 0.76rem;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: border-color 160ms ease, color 160ms ease;
+}
+
+.site-account-link:hover,
+.site-account-link:focus-visible {
+  border-color: #d1b77b;
+  color: #d1b77b;
+}
+
 nav a:hover {
   color: #d1c9b5;
 }
 
+@media (max-width: 520px) {
+  .site-header {
+    gap: 0.45rem;
+    padding-inline: 12px;
+  }
+
+  .site-header .site-nav ul {
+    gap: 0.7rem;
+  }
+
+  .site-header .site-nav a {
+    font-size: 0.78rem;
+  }
+
+  .site-account-link {
+    padding: 0.4rem 0.45rem;
+    font-size: 0.66rem;
+  }
+}
+
 main {
-  min-height: calc(100vh - 76px);
+  min-height: calc(100vh - 64px);
   padding: 4rem 2rem;
   background: #292c2a;
 }

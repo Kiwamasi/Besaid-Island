@@ -4,11 +4,19 @@ const dialog = document.getElementById('gameDialog');
 const form = document.getElementById('gameForm');
 const searchInput = document.getElementById('searchInput');
 const saveNote = document.getElementById('saveNote');
+const loginDialog = document.getElementById('loginDialog');
+const loginForm = document.getElementById('loginForm');
+const loginMessage = document.getElementById('loginMessage');
+const accountName = document.getElementById('accountName');
 const apiUrl = typeof window.BACKLOG_API_URL === 'string'
   ? window.BACKLOG_API_URL.trim().replace(/\/$/, '')
   : '';
+const SESSION_KEY = 'besaid-backlog-session';
 let games = [];
 let apiReady = false;
+let sessionToken = localStorage.getItem(SESSION_KEY);
+let currentUser = null;
+let authMode = 'login';
 
 function createElement(tag, className, text) {
   const element = document.createElement(tag);
@@ -31,35 +39,66 @@ function render() {
   } else {
     document.getElementById('emptyTitle').textContent = 'No games yet';
   }
-
+  document.getElementById('openDialog').disabled = !currentUser?.canEdit || !apiReady;
 }
 
 async function apiRequest(method, body) {
+  const headers = {};
+  if (body) headers['Content-Type'] = 'application/json';
+  if (sessionToken) headers.Authorization = `Bearer ${sessionToken}`;
+
   const response = await fetch(apiUrl, {
     method,
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    headers,
     body: body ? JSON.stringify(body) : undefined
   });
   const result = await response.json();
-  if (!response.ok) throw new Error(result.error || 'Backlog request failed');
+  if (!response.ok) {
+    const error = new Error(result.error || 'Backlog request failed');
+    error.status = response.status;
+    throw error;
+  }
   return result;
+}
+
+function setSignedIn(user) {
+  currentUser = user;
+  document.getElementById('loginButton').hidden = Boolean(user);
+  document.getElementById('logoutButton').hidden = !user;
+  accountName.hidden = !user;
+  accountName.textContent = user ? `${user.username} |` : '';
+  render();
+}
+
+function endSession(message) {
+  sessionToken = null;
+  localStorage.removeItem(SESSION_KEY);
+  setSignedIn(null);
+  saveNote.textContent = message;
 }
 
 async function loadGames() {
   if (!apiUrl) {
-    saveNote.textContent = 'Set the Netlify function URL to enable shared saves';
-    render();
+    loginMessage.textContent = 'Shared backlog service is not configured.';
     return;
   }
-
   saveNote.textContent = 'Connecting to shared backlog…';
   try {
     const result = await apiRequest('GET');
     games = Array.isArray(result.games)
       ? result.games.sort((first, second) => (second.createdAt || 0) - (first.createdAt || 0))
       : [];
+    if (sessionToken && !result.user) {
+      sessionToken = null;
+      localStorage.removeItem(SESSION_KEY);
+    }
+    setSignedIn(result.user || null);
     apiReady = true;
-    saveNote.textContent = 'Shared with all visitors';
+    saveNote.textContent = currentUser
+      ? currentUser.canEdit
+        ? 'Signed in as Kiwamari · edits are shared'
+        : `Signed in as ${currentUser.username} · view only`
+      : 'Shared backlog · sign in to edit';
   } catch (error) {
     apiReady = false;
     saveNote.textContent = `Shared backlog unavailable: ${error.message}`;
@@ -77,28 +116,34 @@ function createGameRow(game) {
   if (game.note) meta.append(createElement('span', 'game-note', game.note));
   if (game.platform || game.note) details.append(meta);
 
-  const controls = createElement('div', 'game-entry-controls');
-  const remove = createElement('button', 'remove-game', 'Remove');
-  remove.type = 'button';
-  remove.disabled = !apiReady;
-  remove.setAttribute('aria-label', `Remove ${game.title}`);
-  remove.addEventListener('click', async () => {
-    const previousIndex = games.findIndex(entry => entry.id === game.id);
-    games = games.filter(entry => entry.id !== game.id);
-    saveNote.textContent = 'Removing…';
-    render();
-    try {
-      await apiRequest('DELETE', { id: game.id });
-      saveNote.textContent = 'Shared backlog saved';
-    } catch (error) {
-      games.splice(Math.max(previousIndex, 0), 0, game);
-      saveNote.textContent = `Could not remove game: ${error.message}`;
+  item.append(details);
+  if (currentUser?.canEdit) {
+    const controls = createElement('div', 'game-entry-controls');
+    const remove = createElement('button', 'remove-game', 'Remove');
+    remove.type = 'button';
+    remove.disabled = !apiReady;
+    remove.setAttribute('aria-label', `Remove ${game.title}`);
+    remove.addEventListener('click', async () => {
+      const previousIndex = games.findIndex(entry => entry.id === game.id);
+      games = games.filter(entry => entry.id !== game.id);
+      saveNote.textContent = 'Removing…';
       render();
-    }
-  });
-
-  controls.append(remove);
-  item.append(details, controls);
+      try {
+        await apiRequest('DELETE', { id: game.id });
+        saveNote.textContent = 'Shared backlog saved';
+      } catch (error) {
+        games.splice(Math.max(previousIndex, 0), 0, game);
+        if (error.status === 401) {
+          endSession('Sign-in expired. The backlog is still viewable; sign in again to edit.');
+          return;
+        }
+        saveNote.textContent = `Could not remove game: ${error.message}`;
+        render();
+      }
+    });
+    controls.append(remove);
+    item.append(controls);
+  }
   return item;
 }
 
@@ -109,12 +154,72 @@ function openDialog() {
 }
 
 document.getElementById('openDialog').addEventListener('click', openDialog);
+document.getElementById('loginButton').addEventListener('click', () => {
+  setAuthMode('login');
+  loginDialog.showModal();
+  loginForm.elements.username.focus();
+});
+document.getElementById('loginClose').addEventListener('click', () => loginDialog.close());
 document.getElementById('closeDialog').addEventListener('click', () => dialog.close());
 document.getElementById('cancelDialog').addEventListener('click', () => dialog.close());
+document.getElementById('logoutButton').addEventListener('click', () => {
+  endSession('Signed out. The shared backlog remains viewable.');
+});
 searchInput.addEventListener('input', render);
+
+function setAuthMode(mode) {
+  authMode = mode;
+  document.querySelectorAll('[data-auth-mode]').forEach(button => {
+    const selected = button.dataset.authMode === mode;
+    button.classList.toggle('is-active', selected);
+    button.setAttribute('aria-pressed', String(selected));
+  });
+  document.getElementById('loginTitle').textContent = mode === 'login' ? 'Sign in' : 'Create account';
+  document.getElementById('loginSubmit').textContent = mode === 'login' ? 'Sign in' : 'Create account';
+  loginForm.elements.password.minLength = 0;
+  loginForm.elements.password.autocomplete = mode === 'login' ? 'current-password' : 'new-password';
+  loginMessage.textContent = mode === 'register'
+    ? 'Accounts can view the shared list. Only Kiwamari can edit it.'
+    : '';
+}
+
+document.querySelectorAll('[data-auth-mode]').forEach(button => {
+  button.addEventListener('click', () => setAuthMode(button.dataset.authMode));
+});
+
+loginForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  const submitButton = document.getElementById('loginSubmit');
+  const values = new FormData(loginForm);
+  submitButton.disabled = true;
+  loginMessage.textContent = 'Signing in…';
+
+  try {
+    const result = await apiRequest('POST', {
+      action: authMode,
+      username: String(values.get('username') || ''),
+      password: String(values.get('password') || '')
+    });
+    sessionToken = result.token;
+    localStorage.setItem(SESSION_KEY, sessionToken);
+    loginForm.reset();
+    loginDialog.close();
+    setSignedIn(result.user);
+    await loadGames();
+  } catch (error) {
+    loginForm.elements.password.value = '';
+    loginMessage.textContent = error.message;
+  } finally {
+    submitButton.disabled = false;
+  }
+});
 
 form.addEventListener('submit', event => {
   event.preventDefault();
+  if (!currentUser?.canEdit) {
+    saveNote.textContent = 'Sign in to edit the shared backlog.';
+    return;
+  }
   if (!apiReady) {
     saveNote.textContent = 'Backlog is still connecting; close this and retry in a moment.';
     loadGames();
@@ -146,6 +251,10 @@ form.addEventListener('submit', event => {
     })
     .catch(error => {
       games = games.filter(entry => entry.id !== game.id);
+      if (error.status === 401) {
+        endSession('Sign-in expired. The backlog is still viewable; sign in again to edit.');
+        return;
+      }
       saveNote.textContent = `Could not add game: ${error.message}`;
       render();
     })
@@ -155,4 +264,10 @@ form.addEventListener('submit', event => {
 });
 
 render();
+setSignedIn(null);
 loadGames();
+if (window.location.hash === '#account') {
+  setAuthMode('login');
+  loginDialog.showModal();
+  loginForm.elements.username.focus();
+}

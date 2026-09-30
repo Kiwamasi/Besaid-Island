@@ -50,9 +50,23 @@
 .add-game,
 .cancel-button,
 .dialog-close,
-.remove-game {
+.remove-game,
+.login-button,
+.logout-button {
   font: inherit;
   cursor: pointer;
+}
+
+.account-name {
+  color: var(--backlog-brass);
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.account-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
 }
 
 .add-game {
@@ -68,6 +82,34 @@
 
 .add-game:hover {
   background: #e4d3a7;
+}
+
+.login-button,
+.logout-button {
+  border: 1px solid var(--backlog-line);
+  border-radius: 3px;
+  padding: 0.5rem 0.7rem;
+  background: transparent;
+  color: var(--backlog-ink);
+  font-size: 0.82rem;
+}
+
+.backlog-site-header .login-button {
+  padding: 0.45rem 0.6rem;
+  font-size: 0.76rem;
+}
+
+.logout-button {
+  border: 0;
+  padding: 0.2rem;
+  color: var(--backlog-ink);
+  white-space: nowrap;
+}
+
+.login-button:hover,
+.logout-button:hover {
+  border-color: var(--backlog-brass);
+  color: var(--backlog-brass);
 }
 
 .add-game:disabled,
@@ -191,6 +233,47 @@
   box-shadow: 0 24px 90px rgba(0, 0, 0, 0.55);
 }
 
+.login-dialog {
+  width: min(calc(100% - 2rem), 24rem);
+}
+
+.login-dialog #loginSubmit {
+  margin-top: 1rem;
+}
+
+.auth-modes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+  margin: 0.25rem 0 1rem;
+  border: 1px solid var(--backlog-line);
+  border-radius: 3px;
+  padding: 3px;
+}
+
+.auth-mode {
+  border: 0;
+  border-radius: 2px;
+  padding: 0.45rem 0.5rem;
+  background: transparent;
+  color: var(--backlog-muted);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.auth-mode.is-active {
+  background: rgba(241, 240, 235, 0.09);
+  color: var(--backlog-ink);
+}
+
+.login-message {
+  min-height: 1.25rem;
+  margin-top: 0.7rem;
+  color: var(--backlog-muted);
+  font-size: 0.8rem;
+}
+
 .game-dialog::backdrop {
   background: rgba(9, 11, 10, 0.74);
   backdrop-filter: blur(3px);
@@ -290,6 +373,10 @@
 
 @media (max-width: 720px) {
   .backlog-main { padding: 1.25rem 1rem 2rem; }
+  .account-actions { gap: 0.3rem; }
+  .account-name { font-size: 0.72rem; }
+  .login-button,
+  .logout-button { padding-inline: 0.45rem; font-size: 0.72rem; }
   .backlog-heading { align-items: flex-start; flex-direction: column; gap: 1.25rem; }
   .backlog-heading .add-game { align-self: flex-start; }
   .backlog-controls { align-items: stretch; flex-direction: column; }

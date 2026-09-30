@@ -13,24 +13,51 @@
   <link rel="stylesheet" href="backlog.css">
 </head>
 <body>
-  <header>
-    <nav aria-label="Main navigation">
+  <header class="site-header backlog-site-header">
+    <nav class="site-nav" aria-label="Main navigation">
       <ul>
         <li><a href="index.html">Home</a></li>
         <li><a href="backlog.html" aria-current="page">Backlog</a></li>
-        <li><a href="#">Portfolio</a></li>
         <li><a href="#">Contact</a></li>
       </ul>
     </nav>
+    <div class="account-actions">
+      <span class="account-name" id="accountName" hidden></span>
+      <button class="login-button" id="loginButton" type="button">Sign in / Create account</button>
+      <button class="logout-button" id="logoutButton" type="button" hidden>Sign Out</button>
+    </div>
   </header>
 
   <main class="backlog-main">
-    <div class="backlog-shell">
+    <dialog class="game-dialog login-dialog" id="loginDialog" aria-labelledby="loginTitle">
+      <form id="loginForm">
+        <div class="dialog-heading">
+          <h2 id="loginTitle">Backlog account</h2>
+          <button class="dialog-close" id="loginClose" type="button" aria-label="Close">×</button>
+        </div>
+        <div class="auth-modes" role="group" aria-label="Account action">
+          <button class="auth-mode is-active" type="button" data-auth-mode="login" aria-pressed="true">Sign in</button>
+          <button class="auth-mode" type="button" data-auth-mode="register" aria-pressed="false">Create account</button>
+        </div>
+        <label class="form-field">
+          <span>Username</span>
+          <input name="username" type="text" required minlength="3" maxlength="24" pattern="[A-Za-z0-9_-]+" autocomplete="username">
+        </label>
+        <label class="form-field">
+          <span>Password</span>
+          <input name="password" type="password" required autocomplete="current-password">
+        </label>
+        <button class="add-game" id="loginSubmit" type="submit">Sign in</button>
+        <p class="login-message" id="loginMessage" role="status"></p>
+      </form>
+    </dialog>
+
+    <div class="backlog-shell" id="backlogApp">
       <section class="backlog-heading" aria-labelledby="page-title">
         <div>
           <h1 id="page-title">Backlog</h1>
         </div>
-        <button class="add-game" id="openDialog" type="button">Add game</button>
+        <button class="add-game" id="openDialog" type="button" disabled>Add game</button>
       </section>
 
       <section class="backlog-controls" aria-label="Find games">
@@ -45,7 +72,7 @@
         <div class="empty-state" id="emptyState">
           <p id="emptyTitle">No games yet</p>
         </div>
-        <p class="save-note" id="saveNote" role="status">Connecting to shared backlog…</p>
+        <p class="save-note" id="saveNote" role="status">Loading shared backlog…</p>
       </section>
     </div>
   </main>
