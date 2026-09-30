@@ -268,10 +268,19 @@
 }
 
 .login-message {
-  min-height: 1.25rem;
+  min-height: 2.5rem;
   margin-top: 0.7rem;
-  color: var(--backlog-muted);
+  border-left: 2px solid var(--backlog-brass);
+  padding: 0.55rem 0.7rem;
+  background: rgba(241, 240, 235, 0.06);
+  color: var(--backlog-ink);
   font-size: 0.8rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.login-dialog input {
+  text-transform: none !important;
 }
 
 .game-dialog::backdrop {

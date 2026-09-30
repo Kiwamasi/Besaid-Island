@@ -52,7 +52,12 @@ async function apiRequest(method, body) {
     headers,
     body: body ? JSON.stringify(body) : undefined
   });
-  const result = await response.json();
+  let result;
+  try {
+    result = await response.json();
+  } catch {
+    throw new Error(`The server returned an unreadable response (HTTP ${response.status})`);
+  }
   if (!response.ok) {
     const error = new Error(result.error || 'Backlog request failed');
     error.status = response.status;
@@ -200,7 +205,9 @@ loginForm.addEventListener('submit', async event => {
   const submitButton = document.getElementById('loginSubmit');
   const values = new FormData(loginForm);
   submitButton.disabled = true;
-  loginMessage.textContent = 'Signing in…';
+  const actionLabel = authMode === 'register' ? 'Account creation' : 'Sign-in';
+  loginMessage.textContent = authMode === 'register' ? 'Creating account…' : 'Signing in…';
+  saveNote.textContent = loginMessage.textContent;
 
   try {
     const result = await apiRequest('POST', {
@@ -225,7 +232,10 @@ loginForm.addEventListener('submit', async event => {
     }
   } catch (error) {
     loginForm.elements.password.value = '';
-    loginMessage.textContent = error.message;
+    const status = error.status ? ` (HTTP ${error.status})` : '';
+    const message = `${actionLabel} failed${status}: ${error.message}`;
+    loginMessage.textContent = message;
+    saveNote.textContent = message;
   } finally {
     submitButton.disabled = false;
   }
