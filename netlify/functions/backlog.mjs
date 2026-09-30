@@ -8,7 +8,7 @@ const KEY_PREFIX = 'game-';
 const ACCOUNT_KEY_PREFIX = 'user-';
 const MAX_GAMES = 500;
 const MAX_ACCOUNTS = 1000;
-const OWNER_USERNAME = 'kiwamari';
+const ADMIN_USERNAME = 'kiwamari';
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://kiwamasi.github.io';
 const scrypt = promisify(scryptCallback);
 const HEADERS = {
@@ -72,7 +72,7 @@ function getSession(request) {
     if (typeof session.sub !== 'string') return null;
     if (session.exp && session.exp <= Math.floor(Date.now() / 1000)) return null;
     const username = normalizeUsername(session.sub);
-    return { username, canEdit: username === OWNER_USERNAME };
+    return { username, canEdit: username === ADMIN_USERNAME };
   } catch {
     return null;
   }
@@ -138,14 +138,12 @@ export default async (request) => {
       }
 
       let account;
-      if (username === OWNER_USERNAME) {
-        if (body.action === 'register') {
-          return respond(request, 409, { error: 'That username is reserved' });
-        }
+      if (username === ADMIN_USERNAME) {
+        if (body.action === 'register') return respond(request, 409, { error: 'That username is reserved' });
         if (!safeEqual(password, process.env.BACKLOG_PASSWORD)) {
           return respond(request, 401, { error: 'Incorrect username or password' });
         }
-        account = { username: OWNER_USERNAME, canEdit: true };
+        account = { username: ADMIN_USERNAME, canEdit: true };
       } else {
         const accounts = getStore({ name: ACCOUNT_STORE_NAME, consistency: 'strong' });
         const key = `${ACCOUNT_KEY_PREFIX}${username}`;
@@ -173,7 +171,7 @@ export default async (request) => {
       return respond(request, 200, {
         token: createSession(account.username),
         user: {
-          username: account.canEdit ? 'Kiwamari' : account.username,
+          username: account.canEdit ? 'Admin' : account.username,
           canEdit: account.canEdit
         }
       });
@@ -187,7 +185,7 @@ export default async (request) => {
       ));
       const session = getSession(request);
       const user = session ? {
-        username: session.canEdit ? 'Kiwamari' : session.username,
+        username: session.canEdit ? 'Admin' : session.username,
         canEdit: session.canEdit
       } : null;
       return respond(request, 200, { games: games.filter(Boolean), user });
@@ -196,7 +194,7 @@ export default async (request) => {
     if (!secretsConfigured()) return respond(request, 503, { error: 'Login is not configured yet' });
     const session = getSession(request);
     if (!session) return respond(request, 401, { error: 'Please sign in again' });
-    if (!session.canEdit) return respond(request, 403, { error: 'Only Kiwamari can edit the backlog' });
+    if (!session.canEdit) return respond(request, 403, { error: 'Only admins can edit the backlog' });
 
     const store = getStore({ name: STORE_NAME, consistency: 'strong' });
 

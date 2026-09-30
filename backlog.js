@@ -96,7 +96,7 @@ async function loadGames() {
     apiReady = true;
     saveNote.textContent = currentUser
       ? currentUser.canEdit
-        ? 'Signed in as Kiwamari · edits are shared'
+        ? 'Signed in as admin · edits are shared'
         : `Signed in as ${currentUser.username} · view only`
       : 'Shared backlog · sign in to edit';
   } catch (error) {
@@ -169,22 +169,30 @@ searchInput.addEventListener('input', render);
 
 function setAuthMode(mode) {
   authMode = mode;
+  document.querySelector('.auth-modes').hidden = false;
+  loginForm.querySelectorAll('.form-field').forEach(field => { field.hidden = false; });
   document.querySelectorAll('[data-auth-mode]').forEach(button => {
     const selected = button.dataset.authMode === mode;
     button.classList.toggle('is-active', selected);
     button.setAttribute('aria-pressed', String(selected));
   });
   document.getElementById('loginTitle').textContent = mode === 'login' ? 'Sign in' : 'Create account';
-  document.getElementById('loginSubmit').textContent = mode === 'login' ? 'Sign in' : 'Create account';
+  const submitButton = document.getElementById('loginSubmit');
+  submitButton.type = 'submit';
+  submitButton.textContent = mode === 'login' ? 'Sign in' : 'Create account';
   loginForm.elements.password.minLength = 0;
   loginForm.elements.password.autocomplete = mode === 'login' ? 'current-password' : 'new-password';
   loginMessage.textContent = mode === 'register'
-    ? 'Accounts can view the shared list. Only Kiwamari can edit it.'
+    ? 'Accounts can view the shared list. Only admins can edit it.'
     : '';
 }
 
 document.querySelectorAll('[data-auth-mode]').forEach(button => {
   button.addEventListener('click', () => setAuthMode(button.dataset.authMode));
+});
+
+document.getElementById('loginSubmit').addEventListener('click', event => {
+  if (event.currentTarget.type === 'button') loginDialog.close();
 });
 
 loginForm.addEventListener('submit', async event => {
@@ -200,12 +208,21 @@ loginForm.addEventListener('submit', async event => {
       username: String(values.get('username') || ''),
       password: String(values.get('password') || '')
     });
+    const createdAccount = authMode === 'register';
     sessionToken = result.token;
     localStorage.setItem(SESSION_KEY, sessionToken);
     loginForm.reset();
-    loginDialog.close();
     setSignedIn(result.user);
     await loadGames();
+    if (createdAccount) {
+      document.querySelector('.auth-modes').hidden = true;
+      loginForm.querySelectorAll('.form-field').forEach(field => { field.hidden = true; });
+      loginMessage.textContent = 'Account created successfully. You are signed in with view-only access; only admins can edit the shared backlog.';
+      submitButton.type = 'button';
+      submitButton.textContent = 'Done';
+    } else {
+      loginDialog.close();
+    }
   } catch (error) {
     loginForm.elements.password.value = '';
     loginMessage.textContent = error.message;
