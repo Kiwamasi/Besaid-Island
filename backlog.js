@@ -32,7 +32,6 @@ function render() {
     document.getElementById('emptyTitle').textContent = 'No games yet';
   }
 
-  document.getElementById('openDialog').disabled = !apiReady;
 }
 
 async function apiRequest(method, body) {
@@ -61,9 +60,9 @@ async function loadGames() {
       : [];
     apiReady = true;
     saveNote.textContent = 'Shared with all visitors';
-  } catch {
+  } catch (error) {
     apiReady = false;
-    saveNote.textContent = 'Shared backlog unavailable';
+    saveNote.textContent = `Shared backlog unavailable: ${error.message}`;
   }
   render();
 }
@@ -114,7 +113,11 @@ searchInput.addEventListener('input', render);
 
 form.addEventListener('submit', event => {
   event.preventDefault();
-  if (!apiReady) return;
+  if (!apiReady) {
+    saveNote.textContent = 'Backlog is still connecting; close this and retry in a moment.';
+    loadGames();
+    return;
+  }
 
   const values = new FormData(form);
   const title = String(values.get('title') || '').trim();
