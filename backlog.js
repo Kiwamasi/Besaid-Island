@@ -12,11 +12,26 @@ const apiUrl = typeof window.BACKLOG_API_URL === 'string'
   ? window.BACKLOG_API_URL.trim().replace(/\/$/, '')
   : '';
 const SESSION_KEY = 'besaid-backlog-session';
+const USER_KEY = 'besaid-backlog-user';
 let games = [];
 let apiReady = false;
 let sessionToken = localStorage.getItem(SESSION_KEY);
-let currentUser = null;
+let currentUser = userFromToken(sessionToken);
+let gamesLoaded = false;
 let authMode = 'login';
+
+function userFromToken(token) {
+  if (!token) return null;
+  try {
+    const payload = token.split('.')[0].replace(/-/g, '+').replace(/_/g, '/');
+    const decoded = JSON.parse(atob(payload));
+    if (typeof decoded.sub !== 'string') return null;
+    const username = decoded.sub.toLowerCase();
+    return { username: username === 'kiwamari' ? 'Kiwamari' : decoded.sub, canEdit: username === 'kiwamari' };
+  } catch {
+    return null;
+  }
+}
 
 function createElement(tag, className, text) {
   const element = document.createElement(tag);
@@ -33,7 +48,7 @@ function render() {
   });
 
   list.replaceChildren(...visibleGames.map(createGameRow));
-  emptyState.hidden = visibleGames.length > 0;
+  emptyState.hidden = !gamesLoaded || visibleGames.length > 0;
   if (games.length > 0 && visibleGames.length === 0) {
     document.getElementById('emptyTitle').textContent = 'No matches';
   } else {
@@ -68,6 +83,8 @@ async function apiRequest(method, body) {
 
 function setSignedIn(user) {
   currentUser = user;
+  if (user) localStorage.setItem(USER_KEY, JSON.stringify(user));
+  else localStorage.removeItem(USER_KEY);
   document.getElementById('loginButton').hidden = Boolean(user);
   document.getElementById('logoutButton').hidden = !user;
   accountName.hidden = !user;
@@ -95,6 +112,7 @@ async function loadGames() {
     games = Array.isArray(result.games)
       ? result.games.sort((first, second) => (second.createdAt || 0) - (first.createdAt || 0))
       : [];
+    gamesLoaded = true;
     if (sessionToken && !result.user) {
       sessionToken = null;
       localStorage.removeItem(SESSION_KEY);
@@ -177,9 +195,17 @@ document.getElementById('logoutButton').addEventListener('click', () => {
 });
 searchInput.addEventListener('input', render);
 window.addEventListener('storage', event => {
-  if (event.key !== SESSION_KEY) return;
-  sessionToken = event.newValue;
-  loadGames();
+  if (event.key === SESSION_KEY) {
+    sessionToken = event.newValue;
+    setSignedIn(userFromToken(sessionToken));
+    loadGames();
+  } else if (event.key === USER_KEY) {
+    try {
+      setSignedIn(JSON.parse(event.newValue || 'null'));
+    } catch {
+      setSignedIn(null);
+    }
+  }
 });
 
 function setAuthMode(mode) {
@@ -321,7 +347,7 @@ form.addEventListener('submit', event => {
 });
 
 render();
-setSignedIn(null);
+setSignedIn(currentUser);
 loadGames();
 if (window.location.hash === '#account') {
   setAuthMode('login');

@@ -315,6 +315,10 @@
     padding:0 24px;
   }
   .site-nav{grid-column:2;grid-row:1;}
+  .site-account{
+    grid-column:3;grid-row:1;justify-self:end;
+    display:flex;align-items:center;gap:.25rem;white-space:nowrap;
+  }
   .site-nav ul{
     list-style:none;
     display:flex;
@@ -333,9 +337,6 @@
     transition:color .2s ease;
   }
   .site-account-link{
-    grid-column:3;
-    grid-row:1;
-    justify-self:end;
     border:1px solid rgba(225,222,207,.24);
     border-radius:3px;
     padding:.45rem .6rem;
@@ -346,6 +347,15 @@
     white-space:nowrap;
     transition:border-color 160ms ease,color 160ms ease;
   }
+  .account-name{
+    color:#d1b77b;font-family:'IBM Plex Sans',Arial,sans-serif;
+    font-size:.82rem;white-space:nowrap;
+  }
+  .site-account-signout{
+    border:0;padding:.2rem;background:transparent;color:#f1f0eb;
+    font-family:'IBM Plex Sans',Arial,sans-serif;font-size:.82rem;cursor:pointer;white-space:nowrap;
+  }
+  .site-account-signout:hover,.site-account-signout:focus-visible{color:#d1b77b;}
   .site-account-link:hover,.site-account-link:focus-visible{
     border-color:#d1b77b;
     color:#d1b77b;
@@ -355,6 +365,7 @@
     .site-nav ul{gap:.7rem;}
     .site-nav a{font-size:.78rem;}
     .site-account-link{padding:.4rem .45rem;font-size:.62rem;}
+    .account-name,.site-account-signout{font-size:.62rem;}
   }
   .site-nav a:hover,
   .site-nav a:focus-visible{color:#d1c9b5;}
@@ -368,7 +379,11 @@
       <li><a href="#">Contact</a></li>
     </ul>
   </nav>
-  <a class="site-account-link" data-shared-account href="backlog.html#account">Sign in / Create account</a>
+  <div class="site-account" data-shared-account>
+    <a class="site-account-link" href="backlog.html#account">Sign in / Create account</a>
+    <span class="account-name" hidden></span>
+    <button class="site-account-signout" type="button" hidden>Sign Out</button>
+  </div>
 </header>
 
 <div class="wrap">

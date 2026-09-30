@@ -28,6 +28,39 @@ header {
   grid-row: 1;
 }
 
+.site-account {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  white-space: nowrap;
+}
+
+.account-name {
+  color: #d1b77b;
+  font-family: 'IBM Plex Sans', Arial, sans-serif;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.site-account-signout {
+  border: 0;
+  padding: 0.2rem;
+  background: transparent;
+  color: #f1f0eb;
+  font-family: 'IBM Plex Sans', Arial, sans-serif;
+  font-size: 0.82rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.site-account-signout:hover,
+.site-account-signout:focus-visible {
+  color: #d1b77b;
+}
+
 nav ul {
   list-style: none;
   display: flex;
@@ -63,6 +96,7 @@ nav a {
   color: #f1f0eb;
   font-family: 'IBM Plex Sans', Arial, sans-serif;
   font-size: 0.76rem;
+  text-align: right;
   text-decoration: none;
   white-space: nowrap;
   transition: border-color 160ms ease, color 160ms ease;
@@ -96,6 +130,9 @@ nav a:hover {
     font-family: 'IBM Plex Sans', Arial, sans-serif;
     font-size: 0.62rem;
   }
+
+  .site-account-signout,
+  .account-name { font-size: 0.62rem; }
 }
 
 main {

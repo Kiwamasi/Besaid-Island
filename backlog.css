@@ -57,13 +57,6 @@
   cursor: pointer;
 }
 
-.account-name {
-  color: var(--backlog-brass);
-  font-family: 'IBM Plex Sans', Arial, sans-serif;
-  font-size: 0.82rem;
-  white-space: nowrap;
-}
-
 .account-actions {
   grid-column: 3;
   grid-row: 1;
@@ -107,7 +100,10 @@
 .logout-button {
   border: 0;
   padding: 0.2rem;
+  background: transparent;
   color: var(--backlog-ink);
+  font-family: 'IBM Plex Sans', Arial, sans-serif;
+  font-size: 0.82rem;
   white-space: nowrap;
 }
 
@@ -116,6 +112,8 @@
   border-color: var(--backlog-brass);
   color: var(--backlog-brass);
 }
+
+.logout-button:focus-visible { outline: 2px solid #e3ca91; outline-offset: 3px; }
 
 .add-game:disabled,
 .remove-game:disabled {

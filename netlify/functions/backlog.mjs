@@ -121,6 +121,7 @@ export default async (request) => {
     return new Response(null, { status: 204, headers: corsHeaders(request) });
   }
 
+  let pendingRegistration = null;
   try {
     const body = ['POST', 'DELETE'].includes(request.method) ? await request.json() : null;
 
@@ -154,6 +155,7 @@ export default async (request) => {
             return respond(request, 429, { error: 'Account registration is currently full' });
           }
           const credentials = await hashPassword(password);
+          pendingRegistration = { username, key, password };
           const created = await accounts.set(key, JSON.stringify({ username, ...credentials }), {
             onlyIfNew: true
           });
@@ -161,9 +163,8 @@ export default async (request) => {
           account = { username, canEdit: false };
         } else {
           const savedAccount = await accounts.get(key, { type: 'json' });
-          if (!await verifyPassword(password, savedAccount)) {
-            return respond(request, 401, { error: 'Incorrect username or password' });
-          }
+          if (!savedAccount) return respond(request, 404, { error: 'Account does not exist' });
+          if (!await verifyPassword(password, savedAccount)) return respond(request, 401, { error: 'Password is incorrect' });
           account = { username: savedAccount.username, canEdit: false };
         }
       }
@@ -178,16 +179,20 @@ export default async (request) => {
     }
 
     if (request.method === 'GET') {
-      const store = getStore({ name: STORE_NAME, consistency: 'strong' });
-      const { blobs } = await store.list({ prefix: KEY_PREFIX });
-      const games = await Promise.all(blobs.map(async ({ key }) =>
-        store.get(key, { type: 'json' })
-      ));
       const session = getSession(request);
       const user = session ? {
         username: session.canEdit ? 'Kiwamari' : session.username,
         canEdit: session.canEdit
       } : null;
+      if (new URL(request.url).searchParams.has('session')) {
+        return respond(request, 200, { user });
+      }
+
+      const store = getStore({ name: STORE_NAME, consistency: 'strong' });
+      const { blobs } = await store.list({ prefix: KEY_PREFIX });
+      const games = await Promise.all(blobs.map(async ({ key }) =>
+        store.get(key, { type: 'json' })
+      ));
       return respond(request, 200, { games: games.filter(Boolean), user });
     }
 
@@ -225,6 +230,23 @@ export default async (request) => {
     return respond(request, 405, { error: 'Method not allowed' });
   } catch (error) {
     console.error('Backlog storage request failed', error);
+    if (pendingRegistration) {
+      try {
+        const accounts = getStore({ name: ACCOUNT_STORE_NAME, consistency: 'strong' });
+        const savedAccount = await accounts.get(pendingRegistration.key, { type: 'json' });
+        if (await verifyPassword(pendingRegistration.password, savedAccount)) {
+          return respond(request, 200, {
+            token: createSession(pendingRegistration.username),
+            user: { username: pendingRegistration.username, canEdit: false }
+          });
+        }
+      } catch (recoveryError) {
+        console.error('Account registration recovery failed', recoveryError);
+      }
+      return respond(request, 500, {
+        error: 'Account creation could not be confirmed. Try signing in with that username before attempting to register again.'
+      });
+    }
     return respond(request, 500, { error: 'Backlog storage is unavailable' });
   }
 };
