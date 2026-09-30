@@ -83,7 +83,12 @@ function normalizeUsername(username) {
 }
 
 function validUsername(username) {
-  return typeof username === 'string' && /^[a-zA-Z0-9_-]{3,24}$/.test(username);
+  return typeof username === 'string' && username.length > 0 && username.length <= 128;
+}
+
+function accountKey(username) {
+  if (/^[a-zA-Z0-9_-]{3,24}$/.test(username)) return `${ACCOUNT_KEY_PREFIX}${username}`;
+  return `${ACCOUNT_KEY_PREFIX}~${Buffer.from(username, 'utf8').toString('base64url')}`;
 }
 
 async function hashPassword(password, salt = randomBytes(16).toString('hex')) {
@@ -132,7 +137,7 @@ export default async (request) => {
       const username = normalizeUsername(suppliedUsername);
       const password = typeof body.password === 'string' ? body.password : '';
       if (!validUsername(suppliedUsername)) {
-        return respond(request, 400, { error: 'Username must be 3–24 letters, numbers, underscores, or hyphens' });
+        return respond(request, 400, { error: 'Username cannot be blank and must be 128 characters or fewer' });
       }
       if (!password || password.length > 128) {
         return respond(request, 400, { error: 'Password must be 1–128 characters' });
@@ -147,7 +152,7 @@ export default async (request) => {
         account = { username: ADMIN_USERNAME, canEdit: true };
       } else {
         const accounts = getStore({ name: ACCOUNT_STORE_NAME, consistency: 'strong' });
-        const key = `${ACCOUNT_KEY_PREFIX}${username}`;
+        const key = accountKey(username);
 
         if (body.action === 'register') {
           const { blobs } = await accounts.list({ prefix: ACCOUNT_KEY_PREFIX });

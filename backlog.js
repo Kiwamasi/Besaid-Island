@@ -16,22 +16,9 @@ const USER_KEY = 'besaid-backlog-user';
 let games = [];
 let apiReady = false;
 let sessionToken = localStorage.getItem(SESSION_KEY);
-let currentUser = userFromToken(sessionToken);
+let currentUser = null;
 let gamesLoaded = false;
 let authMode = 'login';
-
-function userFromToken(token) {
-  if (!token) return null;
-  try {
-    const payload = token.split('.')[0].replace(/-/g, '+').replace(/_/g, '/');
-    const decoded = JSON.parse(atob(payload));
-    if (typeof decoded.sub !== 'string') return null;
-    const username = decoded.sub.toLowerCase();
-    return { username: username === 'kiwamari' ? 'Kiwamari' : decoded.sub, canEdit: username === 'kiwamari' };
-  } catch {
-    return null;
-  }
-}
 
 function createElement(tag, className, text) {
   const element = document.createElement(tag);
@@ -47,7 +34,25 @@ function render() {
     return textMatches;
   });
 
-  list.replaceChildren(...visibleGames.map(createGameRow));
+  const systemOrder = ['PS5', 'PS3', 'Misc'];
+  const systemGroups = systemOrder.map((system, order) => ({
+    system,
+    order,
+    games: visibleGames.filter(game => systemForGame(game) === system)
+  })).sort((first, second) => second.games.length - first.games.length || first.order - second.order);
+
+  list.replaceChildren(...(visibleGames.length ? systemGroups.map(({ system, games: systemGames }) => {
+    const section = createElement('section', 'system-section');
+    const heading = createElement('header', 'system-heading');
+    heading.append(
+      createElement('h2', '', system),
+      createElement('span', 'system-count', String(systemGames.length))
+    );
+    const systemList = createElement('ul', 'game-list');
+    systemList.append(...systemGames.map(createGameRow));
+    section.append(heading, systemList);
+    return section;
+  }) : []));
   emptyState.hidden = !gamesLoaded || visibleGames.length > 0;
   if (games.length > 0 && visibleGames.length === 0) {
     document.getElementById('emptyTitle').textContent = 'No matches';
@@ -55,6 +60,13 @@ function render() {
     document.getElementById('emptyTitle').textContent = 'No games yet';
   }
   document.getElementById('openDialog').disabled = !currentUser?.canEdit || !apiReady;
+}
+
+function systemForGame(game) {
+  const platform = String(game.platform || '').toLocaleLowerCase();
+  if (/\b(?:ps\s*5|playstation\s*5)\b/.test(platform)) return 'PS5';
+  if (/\b(?:ps\s*3|playstation\s*3)\b/.test(platform)) return 'PS3';
+  return 'Misc';
 }
 
 async function apiRequest(method, body) {
@@ -85,12 +97,35 @@ function setSignedIn(user) {
   currentUser = user;
   if (user) localStorage.setItem(USER_KEY, JSON.stringify(user));
   else localStorage.removeItem(USER_KEY);
-  document.getElementById('loginButton').hidden = Boolean(user);
+  const loginButton = document.getElementById('loginButton');
+  loginButton.hidden = Boolean(user);
+  loginButton.disabled = false;
+  loginButton.textContent = 'Sign in / Create account';
   document.getElementById('logoutButton').hidden = !user;
   accountName.hidden = !user;
   accountName.textContent = user
     ? `${user.username}${user.canEdit ? ' | Admin' : ''} |`
     : '';
+  render();
+}
+
+function setAccountChecking() {
+  currentUser = null;
+  const loginButton = document.getElementById('loginButton');
+  loginButton.hidden = true;
+  loginButton.disabled = false;
+  accountName.hidden = false;
+  accountName.textContent = 'Checking account…';
+  document.getElementById('logoutButton').hidden = true;
+  render();
+}
+
+function setAccountUnavailable() {
+  currentUser = null;
+  document.getElementById('loginButton').hidden = true;
+  accountName.hidden = false;
+  accountName.textContent = 'Account status unavailable';
+  document.getElementById('logoutButton').hidden = true;
   render();
 }
 
@@ -104,6 +139,7 @@ function endSession(message) {
 async function loadGames() {
   if (!apiUrl) {
     loginMessage.textContent = 'Shared backlog service is not configured.';
+    setAccountUnavailable();
     return;
   }
   saveNote.textContent = 'Connecting to shared backlog…';
@@ -126,6 +162,7 @@ async function loadGames() {
       : 'Shared backlog · sign in to edit';
   } catch (error) {
     apiReady = false;
+    setAccountUnavailable();
     saveNote.textContent = `Shared backlog unavailable: ${error.message}`;
   }
   render();
@@ -137,9 +174,8 @@ function createGameRow(game) {
   details.append(createElement('h2', '', game.title));
 
   const meta = createElement('p', 'game-entry-meta');
-  if (game.platform) meta.append(createElement('span', 'platform', game.platform));
   if (game.note) meta.append(createElement('span', 'game-note', game.note));
-  if (game.platform || game.note) details.append(meta);
+  if (game.note) details.append(meta);
 
   item.append(details);
   if (currentUser?.canEdit) {
@@ -197,14 +233,8 @@ searchInput.addEventListener('input', render);
 window.addEventListener('storage', event => {
   if (event.key === SESSION_KEY) {
     sessionToken = event.newValue;
-    setSignedIn(userFromToken(sessionToken));
+    setAccountChecking();
     loadGames();
-  } else if (event.key === USER_KEY) {
-    try {
-      setSignedIn(JSON.parse(event.newValue || 'null'));
-    } catch {
-      setSignedIn(null);
-    }
   }
 });
 
@@ -243,9 +273,9 @@ loginForm.addEventListener('submit', async event => {
   const values = new FormData(loginForm);
   const username = String(values.get('username') || '').trim();
   const password = String(values.get('password') || '');
-  if (!/^[A-Za-z0-9_-]{3,24}$/.test(username)) {
+  if (!username || username.length > 128) {
     loginMessage.dataset.state = 'error';
-    loginMessage.textContent = 'Username must be 3–24 letters, numbers, underscores, or hyphens.';
+    loginMessage.textContent = 'Username cannot be blank and must be 128 characters or fewer.';
     loginForm.elements.username.focus();
     return;
   }
@@ -347,7 +377,7 @@ form.addEventListener('submit', event => {
 });
 
 render();
-setSignedIn(currentUser);
+setAccountChecking();
 loadGames();
 if (window.location.hash === '#account') {
   setAuthMode('login');

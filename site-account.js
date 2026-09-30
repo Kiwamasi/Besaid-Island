@@ -11,10 +11,18 @@
   const sessionKey = 'besaid-backlog-session';
   const userKey = 'besaid-backlog-user';
   const signInLabel = 'Sign in / Create account';
-  let signedInUser = readCachedUser();
+  let isChecking = true;
+
+  function showChecking() {
+    isChecking = true;
+    signInLink.hidden = true;
+    accountName.hidden = false;
+    accountName.textContent = 'Checking account…';
+    signOutButton.hidden = true;
+  }
 
   function showSignIn() {
-    signedInUser = null;
+    isChecking = false;
     localStorage.removeItem(userKey);
     signInLink.hidden = false;
     signInLink.href = 'backlog.html#account';
@@ -23,33 +31,22 @@
     signOutButton.hidden = true;
   }
 
+  function showUnavailable() {
+    isChecking = false;
+    signedInUser = null;
+    signInLink.hidden = true;
+    accountName.hidden = false;
+    accountName.textContent = 'Account status unavailable';
+    signOutButton.hidden = true;
+  }
+
   function showSignedIn(user) {
-    signedInUser = user;
+    isChecking = false;
     localStorage.setItem(userKey, JSON.stringify(user));
     signInLink.hidden = true;
     accountName.hidden = false;
     accountName.textContent = `${user.username}${user.canEdit ? ' | Admin' : ''} |`;
     signOutButton.hidden = false;
-  }
-
-  function readCachedUser() {
-    try {
-      return JSON.parse(localStorage.getItem(userKey) || 'null');
-    } catch {
-      return null;
-    }
-  }
-
-  function userFromToken(token) {
-    try {
-      const payload = token.split('.')[0].replace(/-/g, '+').replace(/_/g, '/');
-      const decoded = JSON.parse(atob(payload));
-      if (typeof decoded.sub !== 'string') return null;
-      const username = decoded.sub.toLowerCase();
-      return { username: username === 'kiwamari' ? 'Kiwamari' : decoded.sub, canEdit: username === 'kiwamari' };
-    } catch {
-      return null;
-    }
   }
 
   function signOut() {
@@ -59,36 +56,35 @@
   }
 
   signOutButton.addEventListener('click', signOut);
+  signInLink.addEventListener('click', event => {
+    if (isChecking) event.preventDefault();
+  });
 
   window.addEventListener('storage', event => {
     if (event.key === sessionKey || event.key === userKey) loadAccount();
   });
 
   async function loadAccount() {
+    showChecking();
     const token = localStorage.getItem(sessionKey);
-    if (!token || !apiUrl) {
-      showSignIn();
-      return;
-    }
-
-    showSignedIn(readCachedUser() || userFromToken(token) || { username: 'Account', canEdit: false });
+    if (!apiUrl) return showUnavailable();
 
     try {
       const response = await fetch(`${apiUrl}?session=1`, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined
       });
       if (!response.ok) throw new Error('Could not check account');
       const result = await response.json();
       if (localStorage.getItem(sessionKey) !== token) return;
       if (!result.user) {
-        localStorage.removeItem(sessionKey);
+        if (token) localStorage.removeItem(sessionKey);
         showSignIn();
         return;
       }
 
       showSignedIn(result.user);
     } catch {
-      // Keep the locally cached identity visible while Netlify is unavailable.
+      showUnavailable();
     }
   }
 

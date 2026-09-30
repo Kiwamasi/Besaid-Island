@@ -21,9 +21,9 @@
         <li><a href="#">Contact</a></li>
       </ul>
     </nav>
-    <div class="account-actions site-account">
-      <span class="account-name" id="accountName" hidden></span>
-      <button class="login-button" id="loginButton" type="button">Sign in / Create account</button>
+    <div class="site-account">
+      <span class="account-name" id="accountName">Checking account…</span>
+      <button class="login-button" id="loginButton" type="button" hidden>Sign in / Create account</button>
       <button class="logout-button" id="logoutButton" type="button" hidden>Sign Out</button>
     </div>
   </header>
@@ -41,7 +41,7 @@
         </div>
         <label class="form-field">
           <span>Username</span>
-          <input name="username" type="text" required minlength="3" maxlength="24" pattern="[A-Za-z0-9_-]+" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false">
+          <input name="username" type="text" required maxlength="128" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false">
         </label>
         <label class="form-field">
           <span>Password</span>
@@ -68,7 +68,7 @@
       </section>
 
       <section class="backlog-list-section" aria-label="Games">
-        <ul class="game-list" id="gameList" aria-live="polite"></ul>
+        <div class="system-groups" id="gameList" aria-live="polite"></div>
         <div class="empty-state" id="emptyState" hidden>
           <p id="emptyTitle">No games yet</p>
         </div>
@@ -90,8 +90,12 @@
         <input name="title" type="text" maxlength="100" required autocomplete="off" autofocus>
       </label>
       <label class="form-field">
-        <span>Platform</span>
-        <input name="platform" type="text" maxlength="60" placeholder="Optional">
+        <span>System</span>
+        <select name="platform">
+          <option value="PS5">PS5</option>
+          <option value="PS3">PS3</option>
+          <option value="Misc" selected>Misc</option>
+        </select>
       </label>
       <label class="form-field">
         <span>Note</span>
