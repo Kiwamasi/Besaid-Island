@@ -39,7 +39,7 @@ export default async (request) => {
     return new Response(null, { status: 204, headers: HEADERS });
   }
 
-  const store = getStore(STORE_NAME);
+  const store = getStore({ name: STORE_NAME, consistency: 'strong' });
 
   try {
     if (request.method === 'GET') {

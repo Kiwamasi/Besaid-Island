@@ -83,15 +83,17 @@ function createGameRow(game) {
   remove.disabled = !apiReady;
   remove.setAttribute('aria-label', `Remove ${game.title}`);
   remove.addEventListener('click', async () => {
-    remove.disabled = true;
+    const previousIndex = games.findIndex(entry => entry.id === game.id);
+    games = games.filter(entry => entry.id !== game.id);
+    saveNote.textContent = 'Removing…';
+    render();
     try {
       await apiRequest('DELETE', { id: game.id });
-      games = games.filter(entry => entry.id !== game.id);
       saveNote.textContent = 'Shared backlog saved';
+    } catch (error) {
+      games.splice(Math.max(previousIndex, 0), 0, game);
+      saveNote.textContent = `Could not remove game: ${error.message}`;
       render();
-    } catch {
-      saveNote.textContent = 'Could not remove game';
-      remove.disabled = false;
     }
   });
 
@@ -132,16 +134,20 @@ form.addEventListener('submit', event => {
   };
   const submitButton = form.querySelector('[type="submit"]');
   submitButton.disabled = true;
+  games.unshift(game);
+  searchInput.value = '';
+  saveNote.textContent = 'Saving…';
+  render();
+  dialog.close();
   apiRequest('POST', { game })
     .then(result => {
-      games.unshift(result.game);
+      games = games.map(entry => entry.id === game.id ? result.game : entry);
       saveNote.textContent = 'Shared backlog saved';
-      searchInput.value = '';
-      render();
-      dialog.close();
     })
-    .catch(() => {
-      saveNote.textContent = 'Could not add game';
+    .catch(error => {
+      games = games.filter(entry => entry.id !== game.id);
+      saveNote.textContent = `Could not add game: ${error.message}`;
+      render();
     })
     .finally(() => {
       submitButton.disabled = false;
