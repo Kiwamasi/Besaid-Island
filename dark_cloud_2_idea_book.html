@@ -1,6 +1,12 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dark Cloud 2 Log</title>
-<link rel="icon" href="favicon.ico" type="image/x-icon">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<link rel="icon" href="assets/favicon.ico" type="image/x-icon">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Marcellus&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<link rel="stylesheet" href="css/site.css">
 <style>
   :root{
     --bg:#f3ede0;
@@ -86,7 +92,7 @@
   }
   .masthead-title{display:flex; flex-direction:column; gap:4px;}
   .kicker{
-    font-family:"IBM Plex Mono", monospace; font-size:16px; letter-spacing:.14em; text-transform:uppercase;
+    font-family:"IBM Plex Mono", monospace; font-size:16px; letter-spacing:.03em;
     color:var(--brass); font-weight:600;
   }
   h1{font-size:clamp(28px,5vw,40px); font-optical-sizing:auto; font-variation-settings:"opsz" 40;}
@@ -101,7 +107,7 @@
     font-family:"IBM Plex Mono",monospace; font-variant-numeric:tabular-nums; font-size:22px; font-weight:600; line-height:1.1; min-height:24px;
     color:var(--ink);
   }
-  .total-stat .lbl{font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-soft); min-height:2.4em; display:flex; align-items:flex-start; justify-content:center;}
+  .total-stat .lbl{font-size:10.5px; letter-spacing:.02em; color:var(--ink-soft); min-height:2.4em; display:flex; align-items:flex-start; justify-content:center;}
   .total-stat-primary .num{color:var(--brass-strong); font-size:26px;}
   .total-stat-primary .num-max{color:var(--ink-soft); font-size:15px; font-weight:500;}
   .total-stat-primary .lbl{color:var(--brass);}
@@ -171,7 +177,7 @@
 
   .rows{display:flex; flex-direction:column; gap:6px;}
   .subhead{
-    font-family:"IBM Plex Mono",monospace; font-size:10.5px; letter-spacing:.08em; text-transform:uppercase;
+    font-family:"IBM Plex Mono",monospace; font-size:10.5px; letter-spacing:.02em;
     color:var(--ink-soft); margin:12px 0 2px; padding-top:6px; border-top:1px dashed var(--line);
   }
   .rows > .subhead:first-child{border-top:none; padding-top:0; margin-top:0;}
@@ -304,87 +310,19 @@
   html{color-scheme:dark;}
   body{background:#292c2a; color:#ffffff;}
   .wrap{background:#292c2a;}
+  /* Header layout lives in css/site.css; only page-specific tweaks here. */
   .site-header{
-    display:grid;
-    grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);
-    align-items:center;
-    height:64px;
-    background:#1d201e;
-    border-bottom:1px solid #3c413e;
-    margin-inline:-16px;
-    padding:0 24px;
+    margin-inline:-16px; /* cancel body padding-inline so the header is full width */
   }
-  .site-nav{grid-column:2;grid-row:1;}
-  .site-account{
-    grid-column:3;grid-row:1;justify-self:end;
-    display:flex;align-items:center;gap:.25rem;white-space:nowrap;
-  }
-  .site-nav ul{
-    list-style:none;
-    display:flex;
-    justify-content:center;
-    gap:clamp(.8rem,3vw,2.5rem);
-    flex-wrap:nowrap;
-    margin:0;
-    padding:0;
-  }
-  .site-nav a{
-    color:#fff;
-    font-family:'Cinzel',Georgia,serif;
-    font-size:1rem;
-    text-decoration:none;
-    white-space:nowrap;
-    transition:color .2s ease;
-  }
-  .site-account-link{
-    border:1px solid rgba(225,222,207,.24);
-    border-radius:3px;
-    padding:.45rem .6rem;
-    color:#f1f0eb;
-    font-family:'IBM Plex Sans',Arial,sans-serif;
-    font-size:.76rem;
-    text-decoration:none;
-    white-space:nowrap;
-    transition:border-color 160ms ease,color 160ms ease;
-  }
-  .account-name{
-    color:#d1b77b;font-family:'IBM Plex Sans',Arial,sans-serif;
-    font-size:.82rem;white-space:nowrap;
-  }
-  .site-account-signout{
-    border:0;padding:.2rem;background:transparent;color:#f1f0eb;
-    font-family:'IBM Plex Sans',Arial,sans-serif;font-size:.82rem;cursor:pointer;white-space:nowrap;
-  }
-  .site-account-signout:hover,.site-account-signout:focus-visible{color:#d1b77b;}
-  .site-account-link:hover,.site-account-link:focus-visible{
-    border-color:#d1b77b;
-    color:#d1b77b;
-  }
-  @media(max-width:520px){
-    .site-header{padding-inline:12px;}
-    .site-nav ul{gap:.7rem;}
-    .site-nav a{font-size:.78rem;}
-    .site-account-link{padding:.4rem .45rem;font-size:.62rem;}
-    .account-name,.site-account-signout{font-size:.62rem;}
-  }
-  .site-nav a:hover,
-  .site-nav a:focus-visible{color:#d1c9b5;}
 </style>
+</head>
+<body>
 
-<header class="site-header">
-  <nav class="site-nav" aria-label="Main navigation">
-    <ul>
-      <li><a href="index.html">Home</a></li>
-      <li><a href="backlog.html">Backlog</a></li>
-      <li><a href="#">Contact</a></li>
-    </ul>
-  </nav>
-  <div class="site-account" data-shared-account>
-    <a class="site-account-link" href="backlog.html#account" hidden>Sign in / Create account</a>
-    <span class="account-name">Checking account…</span>
-    <button class="site-account-signout" type="button" hidden>Sign Out</button>
-  </div>
-</header>
+<header class="site-header"></header>
+<script src="js/site-header.js"></script>
+<script src="js/site-config.js"></script>
+<script src="js/local-mock-api.js"></script>
+<script src="js/site-account.js"></script>
 
 <div class="wrap">
   <div class="masthead">
@@ -530,8 +468,6 @@ function syncDuplicateIdeas(){
     });
   });
 }
-
-function pointsFor(it){ return it.kind === "scoop" ? SCOOP_POINTS : it.kind === "idea" ? IDEA_POINTS : 0; }
 
 function computeStats(){
   let scoopDone=0, scoopTotal=0, ideaDone=0, ideaTotal=CANONICAL_IDEA_LIST.length, badgeDone=0, badgeTotal=DATA.badges.filter(b=>b.core).length;
@@ -698,7 +634,6 @@ function renderPanels(){
       btn.setAttribute('aria-expanded', String(!collapsed));
       state.collapsedGroups[key] = collapsed;
       saveLocalState();
-      schedulePublish();
     });
   });
   panelsEl.querySelectorAll('.area-toggle').forEach(btn=>{
@@ -710,7 +645,6 @@ function renderPanels(){
       btn.setAttribute('aria-expanded', String(!collapsed));
       state.collapsedAreas[key] = collapsed;
       saveLocalState();
-      schedulePublish();
     });
   });
 }
@@ -721,7 +655,6 @@ function renderAll(){
   renderPanels();
 }
 
-let publishTimer = null;
 const LOCAL_STATE_KEY = 'dark-cloud-2-idea-book-state';
 
 function saveLocalState(){
@@ -764,7 +697,6 @@ function onToggle(e){
   renderTotals();
   renderTabCounts();
   saveLocalState();
-  schedulePublish();
 }
 
 function renderTabCounts(){
@@ -786,11 +718,6 @@ function renderTabCounts(){
   });
 }
 
-function buildDocument(){
-  return "<!doctype html>\n<html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">" +
-    document.head.innerHTML + "</head><body>" + document.body.innerHTML + "</body></html>";
-}
-
 function saveTabToSession(){
   try{ sessionStorage.setItem('ideabook-tab', activeTab); }catch(e){}
 }
@@ -798,104 +725,31 @@ function restoreTabFromSession(){
   try{ const t = sessionStorage.getItem('ideabook-tab'); if(t) activeTab = t; }catch(e){}
 }
 
-let artifactNS = null;
-let writable = true;
-// Captured once, before any render() call mutates the DOM — this is the
-// pristine served document, used as the base for every future publish so
-// we never serialize a live/mutated DOM (only the state-data JSON differs
-// between publishes; everything else is re-derived client-side from DATA).
-let ORIGINAL_DOC = null;
-
-async function initArtifact(){
-  try{
-    if(!window.claude || !window.claude.use){ writable = false; setSaveState('saved in this browser'); return; }
-    artifactNS = await window.claude.use('artifact');
-    if(!artifactNS){ writable = false; setSaveState('read‑only here — progress won\'t be saved'); return; }
-    setSaveState('saved');
-  }catch(e){ writable = false; }
-}
-
 function setSaveState(text){
   const el = document.getElementById('saveState');
   if(el) el.textContent = text;
 }
 
-function schedulePublish(){
-  setSaveState('saving…');
-  if(publishTimer) clearTimeout(publishTimer);
-  publishTimer = setTimeout(doPublish, 1800);
-}
-
-async function doPublish(){
-  if(!writable || !artifactNS){ return; }
-  try{
-    const html = buildPublishHtml();
-    await artifactNS.publish(html);
-    setSaveState('saved');
-    // success reloads this view too; state survives via window.claude.hot.snapshot
-  }catch(err){
-    if(err && err.code === 'conflict'){ return; }
-    if(err && (err.code === 'not_writer' || err.code === 'not_granted')){
-      writable = false; setSaveState('read‑only view — progress won\'t be saved'); return;
-    }
-    setSaveState('save failed — will retry on next change');
-  }
-}
-
-// Swap only the embedded state-data JSON inside the pristine original
-// document string. This is the "template function of the page's state"
-// pattern: DATA + this one JSON blob fully determine the rendered UI,
-// so patching the blob is a faithful, complete replacement document.
-function buildPublishHtml(){
-  const stateJson = JSON.stringify(state).replace(/</g, '\\u003c');
-  return ORIGINAL_DOC.replace(
-    /(<script type="application\/json" id="state-data">)[\s\S]*?(<\/script>)/,
-    `$1${stateJson}$2`
-  );
-}
-
-function readEmbeddedState(){
-  try{
-    const embedded = document.getElementById('state-data');
-    if(embedded && embedded.textContent.trim()){ return JSON.parse(embedded.textContent); }
-  }catch(e){}
-  return {checked:{}, collapsedAreas:{}, collapsedGroups:{}};
-}
-
-function start(hotData){
-  ORIGINAL_DOC = "<!doctype html>\n" + document.documentElement.outerHTML;
+function start(){
   restoreTabFromSession();
-  state = normalizeState((hotData && hotData.checked) ? hotData : (readLocalState() || readEmbeddedState()));
+  state = normalizeState(readLocalState());
   syncDuplicateIdeas();
   renderAll();
+  setSaveState('saved in this browser');
   document.getElementById('resetBtn').addEventListener('click', ()=>{
     if(confirm('Clear every checkmark in this Idea Book? This cannot be undone.')){
       state = {checked:{}, collapsedAreas:{}, collapsedGroups:{}};
       saveLocalState();
       renderAll();
-      schedulePublish();
     }
   });
-  initArtifact();
-  if(window.claude && window.claude.hot && window.claude.hot.snapshot){
-    window.claude.hot.snapshot(() => state);
-  }
-}
-
-function boot(){
-  if(window.claude && window.claude.hot && window.claude.hot.ready){
-    window.claude.hot.ready(start);
-  } else {
-    start((window.claude && window.claude.hot && window.claude.hot.data) || null);
-  }
 }
 
 if(document.readyState === 'loading'){
-  document.addEventListener('DOMContentLoaded', boot);
+  document.addEventListener('DOMContentLoaded', start);
 } else {
-  boot();
+  start();
 }
 </script>
-<script type="application/json" id="state-data">{"checked": {}}</script>
-<script src="backlog-config.js"></script>
-<script src="site-account.js"></script>
+</body>
+</html>

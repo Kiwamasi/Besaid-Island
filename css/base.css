@@ -1,0 +1,19 @@
+/* Base page styles for the Home and Backlog pages. Colours come from css/site.css. */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Marcellus', serif;
+  background: var(--site-bg);
+  color: var(--site-ink);
+}
+
+main {
+  min-height: calc(100vh - var(--site-header-height));
+  padding: 4rem 2rem;
+  background: var(--site-bg);
+}

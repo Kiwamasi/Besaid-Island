@@ -1,0 +1,343 @@
+/* Backlog page. Shared colours, buttons, dialogs and form fields come from css/site.css. */
+
+.backlog-main {
+  padding: 1.5rem 2rem 3rem;
+  background:
+    radial-gradient(ellipse at 12% 4%, rgba(126, 139, 116, 0.12), transparent 38rem),
+    var(--site-bg);
+}
+
+.backlog-shell {
+  width: min(100%, 1300px);
+  margin: 0 auto;
+}
+
+.backlog-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 2rem;
+  padding: 0.6rem 0 1rem;
+  border-bottom: 1px solid var(--site-line);
+}
+
+.backlog-heading h1 {
+  color: var(--site-ink);
+  font-family: 'Marcellus', Georgia, serif;
+  font-size: 1.8rem;
+  font-weight: 400;
+  line-height: 1.15;
+}
+
+.backlog-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--site-line);
+}
+
+.search-field input {
+  width: min(15rem, 28vw);
+  border: 1px solid var(--site-line);
+  border-radius: 3px;
+  padding: 0.45rem 0.6rem;
+  background: var(--site-field-bg);
+  color: var(--site-ink);
+  font-family: 'IBM Plex Sans', Arial, sans-serif;
+  font-size: 0.85rem;
+}
+
+.search-field input::placeholder {
+  color: var(--site-placeholder);
+}
+
+.system-groups {
+  display: grid;
+  gap: 0.8rem;
+  padding-top: 0.65rem;
+}
+
+.system-section {
+  min-width: 0;
+  animation: entry-in 180ms ease both;
+}
+
+.system-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  margin-bottom: 0.25rem;
+  border-bottom: 1px solid var(--site-line);
+  padding: 0.15rem 0.1rem;
+}
+
+.system-heading h2 {
+  color: var(--site-ink);
+  font-family: 'IBM Plex Sans', Arial, sans-serif;
+  font-size: 1.64rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.system-count {
+  color: var(--site-muted);
+  font-family: 'IBM Plex Sans', Arial, sans-serif;
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.game-list {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  list-style: none;
+  border-top: 1px solid #474c49;
+  border-left: 1px solid #474c49;
+}
+
+/* Every game is the height of a title plus one line of note (1.35rem + 1.05rem),
+   plus its 1px bottom border, whether or not it has a note. */
+.game-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-width: 0;
+  height: calc(2.4rem + 1px);
+  border-right: 1px solid #474c49;
+  border-bottom: 1px solid #474c49;
+  background: rgba(14, 16, 15, 0.14);
+  animation: entry-in 160ms ease both;
+}
+
+/* Re-renders after a removal skip the fade-in, so only the removed game animates. */
+.no-fade-in .system-section,
+.no-fade-in .game-entry {
+  animation: none;
+}
+
+/* Keep a popping slot above its neighbours while it swells. */
+.is-popping {
+  position: relative;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.game-entry:nth-child(even) {
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.game-entry-details {
+  min-width: 0;
+  align-self: start;
+}
+
+/* Titles stay on one line and cut off with "…"; hovering a game shows its full title and note. */
+.game-entry h2 {
+  min-width: 0;
+  overflow: hidden;
+  padding: 0.2rem 0.35rem;
+  color: var(--site-ink);
+  font-family: 'IBM Plex Sans', Arial, sans-serif;
+  font-size: 0.76rem;
+  font-weight: 400;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Notes also stay on one line and cut off with "…". */
+.game-entry-meta {
+  overflow: hidden;
+  padding: 0 0.35rem 0.2rem;
+  color: var(--site-muted);
+  font-size: 0.68rem;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.game-entry-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0 0.35rem;
+}
+
+.edit-game {
+  display: flex;
+  align-items: center;
+  border: 0;
+  padding: 0.15rem 0.2rem;
+  background: transparent;
+  color: var(--site-muted);
+  cursor: pointer;
+  transition: color 160ms ease;
+}
+
+.edit-game svg {
+  width: 0.7rem;
+  height: 0.7rem;
+}
+
+.edit-game:hover,
+.edit-game:focus-visible {
+  color: var(--site-accent);
+}
+
+.edit-game:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.remove-game {
+  border: 0;
+  padding: 0 0.2rem;
+  background: transparent;
+  color: #e56f70;
+  font-family: 'IBM Plex Sans', Arial, sans-serif;
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.remove-game:hover {
+  color: #ff9a9b;
+}
+
+.remove-game:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* The green "+" slot at the end of each section (admins only). */
+.game-add {
+  height: calc(2.4rem + 1px);
+  border-right: 1px solid #474c49;
+  border-bottom: 1px solid #474c49;
+}
+
+.game-add-button {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color: #6fcf8e;
+  font-family: 'IBM Plex Sans', Arial, sans-serif;
+  font-size: 1.1rem;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.game-add-button:hover,
+.game-add-button:focus-visible {
+  background: rgba(111, 207, 142, 0.08);
+  color: #95e2ad;
+}
+
+.backlog-main .game-add-button:focus-visible {
+  outline-offset: -2px;
+}
+
+/* A game being typed in: the same shape as a game, with a name and a note box. */
+.game-draft {
+  background: rgba(209, 183, 123, 0.07);
+  box-shadow: inset 0 0 0 1px var(--site-accent);
+}
+
+.game-draft input {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--site-ink);
+  line-height: 1.25;
+}
+
+.game-draft input::placeholder {
+  color: var(--site-placeholder);
+}
+
+.backlog-main .game-draft input:focus-visible {
+  outline: none;
+}
+
+.draft-title {
+  height: 1.35rem;
+  padding: 0.2rem 0.35rem;
+  font-family: 'IBM Plex Sans', Arial, sans-serif;
+  font-size: 0.76rem;
+}
+
+.draft-note {
+  height: 1.05rem;
+  padding: 0 0.35rem 0.2rem;
+  font-family: 'Marcellus', Georgia, serif;
+  font-size: 0.68rem;
+}
+
+.empty-state {
+  padding: 2.5rem 1rem;
+  text-align: center;
+}
+
+.empty-state p {
+  color: var(--site-ink);
+  font-size: 0.9rem;
+}
+
+.save-note {
+  padding-top: 0.5rem;
+  color: #91948b;
+  font-size: 0.75rem;
+  text-align: right;
+}
+
+.backlog-main :focus-visible {
+  outline: 2px solid var(--site-focus);
+  outline-offset: 3px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
+@keyframes entry-in {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}
+
+/* Fewer columns as the screen narrows, so titles keep a readable width. */
+@media (max-width: 1100px) {
+  .game-list { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+@media (max-width: 900px) {
+  .game-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 720px) {
+  .backlog-main { padding: 1.25rem 1rem 2rem; }
+  .backlog-heading { align-items: flex-start; flex-direction: column; gap: 1.25rem; }
+  .backlog-controls { align-items: stretch; flex-direction: column; }
+  .search-field input { width: 100%; }
+  .game-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 460px) {
+  .game-list { grid-template-columns: minmax(0, 1fr); }
+}

@@ -5,59 +5,27 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#1d201e">
   <title>Game Backlog | Besaid Island</title>
-  <link rel="icon" href="favicon.ico" type="image/x-icon">
+  <link rel="icon" href="assets/favicon.ico" type="image/x-icon">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="backlog.css">
+  <link href="https://fonts.googleapis.com/css2?family=Marcellus&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/site.css">
+  <link rel="stylesheet" href="css/backlog.css">
 </head>
 <body>
-  <header class="site-header backlog-site-header">
-    <nav class="site-nav" aria-label="Main navigation">
-      <ul>
-        <li><a href="index.html">Home</a></li>
-        <li><a href="backlog.html" aria-current="page">Backlog</a></li>
-        <li><a href="#">Contact</a></li>
-      </ul>
-    </nav>
-    <div class="site-account">
-      <span class="account-name" id="accountName">Checking account…</span>
-      <button class="login-button" id="loginButton" type="button" hidden>Sign in / Create account</button>
-      <button class="logout-button" id="logoutButton" type="button" hidden>Sign Out</button>
-    </div>
-  </header>
+  <header class="site-header"></header>
+  <script src="js/site-header.js"></script>
+  <script src="js/site-config.js"></script>
+  <script src="js/local-mock-api.js"></script>
+  <script src="js/site-account.js"></script>
 
   <main class="backlog-main">
-    <dialog class="game-dialog login-dialog" id="loginDialog" aria-labelledby="loginTitle">
-      <form id="loginForm" novalidate>
-        <div class="dialog-heading">
-          <h2 id="loginTitle">Backlog account</h2>
-          <button class="dialog-close" id="loginClose" type="button" aria-label="Close">×</button>
-        </div>
-        <div class="auth-modes" role="group" aria-label="Account action">
-          <button class="auth-mode is-active" type="button" data-auth-mode="login" aria-pressed="true">Sign in</button>
-          <button class="auth-mode" type="button" data-auth-mode="register" aria-pressed="false">Create account</button>
-        </div>
-        <label class="form-field">
-          <span>Username</span>
-          <input name="username" type="text" required maxlength="128" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false">
-        </label>
-        <label class="form-field">
-          <span>Password</span>
-          <input name="password" type="password" required autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false">
-        </label>
-        <button class="add-game" id="loginSubmit" type="submit">Sign in</button>
-        <p class="login-message" id="loginMessage" role="status"></p>
-      </form>
-    </dialog>
-
-    <div class="backlog-shell" id="backlogApp">
+    <div class="backlog-shell">
       <section class="backlog-heading" aria-labelledby="page-title">
         <div>
           <h1 id="page-title">Backlog</h1>
         </div>
-        <button class="add-game" id="openDialog" type="button" disabled>Add game</button>
       </section>
 
       <section class="backlog-controls" aria-label="Find games">
@@ -77,38 +45,6 @@
     </div>
   </main>
 
-  <dialog class="game-dialog" id="gameDialog" aria-labelledby="dialogTitle">
-    <form id="gameForm">
-      <div class="dialog-heading">
-        <div>
-          <h2 id="dialogTitle">Add a game</h2>
-        </div>
-        <button class="dialog-close" id="closeDialog" type="button" aria-label="Close">×</button>
-      </div>
-      <label class="form-field">
-        <span>Game title</span>
-        <input name="title" type="text" maxlength="100" required autocomplete="off" autofocus>
-      </label>
-      <label class="form-field">
-        <span>System</span>
-        <select name="platform">
-          <option value="PS5">PS5</option>
-          <option value="PS3">PS3</option>
-          <option value="Misc" selected>Misc</option>
-        </select>
-      </label>
-      <label class="form-field">
-        <span>Note</span>
-        <textarea name="note" rows="2" maxlength="240" placeholder="Optional"></textarea>
-      </label>
-      <div class="dialog-actions">
-        <button class="cancel-button" id="cancelDialog" type="button">Cancel</button>
-        <button class="add-game" type="submit">Add game</button>
-      </div>
-    </form>
-  </dialog>
-
-  <script src="backlog-config.js"></script>
-  <script src="backlog.js"></script>
+  <script src="js/backlog.js"></script>
 </body>
 </html>

@@ -1,0 +1,372 @@
+/* Shared across every page: theme colours, the site header (nav + account controls)
+   and the dialog/form/button styles used by the sign-in dialog and page dialogs.
+   This is the only place these are defined. Pages must not restyle .site-header,
+   .site-nav, .site-account or .site-dialog, so they look identical everywhere. */
+
+:root {
+  /* Theme colours. */
+  --site-bg: #292c2a;
+  --site-header-bg: #1d201e;
+  --site-field-bg: #1e211f;
+  --site-ink: #f1f0eb;
+  --site-muted: #b8b9b0;
+  --site-placeholder: #8e9188;
+  --site-line: rgba(225, 222, 207, 0.18);
+  --site-line-strong: rgba(225, 222, 207, 0.24);
+  --site-accent: #d1b77b;
+  --site-accent-hover: #e4d3a7;
+  --site-on-accent: #24251f;
+  --site-focus: #e3ca91;
+  --site-nav-link: #fff;
+  --site-nav-hover: #d1c9b5;
+
+  /* Header height, also used by css/base.css to size the page below it. */
+  --site-header-height: 54px;
+
+  /* One nav width for the whole site. Don't override per page. */
+  --site-nav-width: 770px;
+  /* Room kept clear on each side of the nav for the account controls. */
+  --site-account-slot: 14rem;
+}
+
+/* Reserve scrollbar space on every page, so pages with and without a scrollbar
+   centre the header identically. */
+html {
+  scrollbar-gutter: stable;
+}
+
+/* ---------- Header ---------- */
+
+.site-header {
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1fr)
+    minmax(min-content, min(var(--site-nav-width), 100% - 2 * var(--site-account-slot)))
+    minmax(0, 1fr);
+  align-items: center;
+  height: var(--site-header-height);
+  padding: 0 24px;
+  background-color: var(--site-header-bg);
+  /* Reset everything the header could inherit from a page's body styles, so it
+     looks identical whatever page it's on. */
+  color: var(--site-ink);
+  font-family: 'Marcellus', Georgia, serif;
+  font-size: 1rem;
+  line-height: normal;
+  -webkit-font-smoothing: auto;
+  -moz-osx-font-smoothing: auto;
+  color-scheme: normal;
+}
+
+.site-header .site-nav {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.site-header .site-nav ul {
+  display: flex;
+  justify-content: space-between;
+  gap: clamp(0.8rem, 3vw, 2.5rem);
+  flex-wrap: nowrap;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.site-header .site-nav a {
+  color: var(--site-nav-link);
+  font-family: 'Marcellus', Georgia, serif;
+  font-size: 1.2rem;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 0.2s ease;
+}
+
+.site-header .site-nav a:hover,
+.site-header .site-nav a:focus-visible {
+  color: var(--site-nav-hover);
+}
+
+/* ---------- Account controls (in the header) ---------- */
+
+.site-account {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  white-space: nowrap;
+}
+
+.account-name {
+  color: var(--site-accent);
+  font-family: 'IBM Plex Sans', Arial, sans-serif;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.site-account-signin,
+.site-account-signout {
+  margin: 0;
+  background: transparent;
+  color: var(--site-ink);
+  font-family: 'IBM Plex Sans', Arial, sans-serif;
+  line-height: normal;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.site-account-signin {
+  border: 1px solid var(--site-line-strong);
+  border-radius: 3px;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.76rem;
+  transition: border-color 160ms ease, color 160ms ease;
+}
+
+.site-account-signout {
+  border: 0;
+  padding: 0.2rem;
+  font-size: 0.82rem;
+}
+
+.site-account-signin:hover,
+.site-account-signin:focus-visible {
+  border-color: var(--site-accent);
+  color: var(--site-accent);
+}
+
+.site-account-signout:hover,
+.site-account-signout:focus-visible {
+  color: var(--site-accent);
+}
+
+@media (max-width: 520px) {
+  .site-header {
+    padding-inline: 12px;
+  }
+
+  .site-header .site-nav ul {
+    gap: 0.7rem;
+  }
+
+  .site-header .site-nav a {
+    font-size: 0.9rem;
+  }
+
+  .site-account-signin {
+    padding: 0.4rem 0.45rem;
+    font-size: 0.62rem;
+  }
+
+  .site-account-signout,
+  .account-name { font-size: 0.62rem; }
+}
+
+/* ---------- Dialogs, form fields and buttons ---------- */
+
+.site-dialog {
+  box-sizing: border-box;
+  width: min(calc(100% - 2rem), 32rem);
+  max-height: min(90vh, 48rem);
+  margin: auto;
+  border: 1px solid var(--site-line-strong);
+  border-radius: 5px;
+  padding: 1.1rem;
+  background: var(--site-bg);
+  color: var(--site-ink);
+  box-shadow: 0 24px 90px rgba(0, 0, 0, 0.55);
+  /* Like the header: don't inherit the page's body styles. */
+  font-family: 'Marcellus', Georgia, serif;
+  font-size: 1rem;
+  line-height: normal;
+  text-align: left;
+  -webkit-font-smoothing: auto;
+  -moz-osx-font-smoothing: auto;
+}
+
+.site-dialog *,
+.site-dialog *::before,
+.site-dialog *::after {
+  box-sizing: border-box;
+}
+
+/* Zero-specificity reset so any class rule below wins. */
+.site-dialog :where(h2, p, form, label, input, select, textarea, button) {
+  margin: 0;
+}
+
+.site-dialog::backdrop {
+  background: rgba(9, 11, 10, 0.74);
+  backdrop-filter: blur(3px);
+}
+
+.site-dialog :focus-visible {
+  outline: 2px solid var(--site-focus);
+  outline-offset: 3px;
+}
+
+.dialog-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.35rem;
+}
+
+.dialog-heading h2 {
+  color: var(--site-ink);
+  font-family: 'Marcellus', Georgia, serif;
+  font-size: 1.45rem;
+  font-weight: 400;
+  line-height: normal;
+}
+
+.dialog-close {
+  width: 2rem;
+  aspect-ratio: 1;
+  border: 1px solid var(--site-line);
+  border-radius: 50%;
+  padding: 0;
+  background: transparent;
+  color: var(--site-ink);
+  font: inherit;
+  font-size: 1.35rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.form-field {
+  display: grid;
+  gap: 0.4rem;
+  margin-top: 0.7rem;
+  color: var(--site-ink);
+  font-size: 0.85rem;
+}
+
+.form-field input,
+.form-field select,
+.form-field textarea {
+  width: 100%;
+  border: 1px solid var(--site-line);
+  border-radius: 3px;
+  padding: 0.55rem 0.65rem;
+  background: var(--site-field-bg);
+  color: var(--site-ink);
+  font-family: 'IBM Plex Sans', Arial, sans-serif;
+  font-size: 0.9rem;
+}
+
+.form-field input::placeholder,
+.form-field textarea::placeholder {
+  color: var(--site-placeholder);
+}
+
+.form-field textarea {
+  resize: vertical;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+
+.button-primary,
+.button-secondary {
+  border: 1px solid var(--site-accent);
+  border-radius: 3px;
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.button-primary {
+  padding: 0.5rem 0.75rem;
+  background: var(--site-accent);
+  color: var(--site-on-accent);
+  font-weight: 600;
+}
+
+.button-primary:hover {
+  background: var(--site-accent-hover);
+}
+
+.button-primary:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.button-secondary {
+  border-color: var(--site-line);
+  padding: 0.65rem 0.9rem;
+  background: transparent;
+  color: var(--site-ink);
+}
+
+/* ---------- Sign-in / create-account dialog ---------- */
+
+.login-dialog {
+  width: min(calc(100% - 2rem), 24rem);
+}
+
+.login-submit {
+  margin-top: 1rem;
+}
+
+.auth-modes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+  margin: 0.25rem 0 1rem;
+  border: 1px solid var(--site-line);
+  border-radius: 3px;
+  padding: 3px;
+}
+
+.auth-mode {
+  border: 0;
+  border-radius: 2px;
+  padding: 0.45rem 0.5rem;
+  background: transparent;
+  color: var(--site-muted);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.auth-mode.is-active {
+  background: rgba(241, 240, 235, 0.09);
+  color: var(--site-ink);
+}
+
+.login-message {
+  min-height: 2.5rem;
+  margin-top: 0.7rem;
+  border-left: 2px solid var(--site-accent);
+  padding: 0.55rem 0.7rem;
+  background: rgba(241, 240, 235, 0.06);
+  color: var(--site-ink);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.login-message[data-state="error"] {
+  border-left-color: #f0a58f;
+  background: rgba(226, 109, 90, 0.12);
+  color: #ffd2c8;
+}
+
+.login-message[data-state="success"] {
+  border-left-color: #a7c1a8;
+  background: rgba(143, 184, 150, 0.12);
+  color: #d9eadb;
+}
+
+.login-message[data-state="pending"] {
+  border-left-color: var(--site-accent);
+}

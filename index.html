@@ -4,33 +4,25 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Besaid Island</title>
-  <link rel="icon" href="favicon.ico" type="image/x-icon">
+  <link rel="icon" href="assets/favicon.ico" type="image/x-icon">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Marcellus&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/site.css">
+  <link rel="stylesheet" href="css/home.css">
 </head>
 <body>
 
-  <header class="site-header">
-    <nav class="site-nav" aria-label="Main navigation">
-      <ul>
-        <li><a href="index.html">Home</a></li>
-        <li><a href="backlog.html">Backlog</a></li>
-        <li><a href="#">Contact</a></li>
-      </ul>
-    </nav>
-    <div class="site-account" data-shared-account>
-      <a class="site-account-link" href="backlog.html#account" hidden>Sign in / Create account</a>
-      <span class="account-name">Checking account…</span>
-      <button class="site-account-signout" type="button" hidden>Sign Out</button>
-    </div>
-  </header>
+  <header class="site-header"></header>
+  <script src="js/site-header.js"></script>
+  <script src="js/site-config.js"></script>
+  <script src="js/local-mock-api.js"></script>
+  <script src="js/site-account.js"></script>
 
   <main>
     <section class="game-index">
       <a class="game-card" href="dark_cloud_2_idea_book.html" aria-label="Open the Dark Cloud 2 idea book guide">
-        <div class="game-card__overlay"></div>
         <div class="game-card__content">
           <p class="game-card__eyebrow">PlayStation 2</p>
           <h2>Dark Cloud 2</h2>
@@ -39,8 +31,6 @@
     </section>
   </main>
 
-  <script src="backlog-config.js"></script>
-  <script src="site-account.js"></script>
-  <script src="script.js"></script>
+  <script src="js/home.js"></script>
 </body>
 </html>
