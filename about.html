@@ -8,9 +8,10 @@
   <link rel="icon" href="assets/favicon.ico" type="image/x-icon">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Marcellus&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Marcellus&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/base.css">
   <link rel="stylesheet" href="css/site.css">
+  <link rel="stylesheet" href="css/about.css">
 </head>
 <body>
   <header class="site-header"></header>
@@ -18,7 +19,103 @@
   <script src="js/site-config.js"></script>
   <script src="js/local-mock-api.js"></script>
   <script src="js/site-account.js"></script>
+  <script src="js/site-telemetry.js"></script>
 
-  <main></main>
+  <main class="stats">
+    <div class="stats-repo">
+      <h1 class="stats-repo-name">
+        <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2.5A2.5 2.5 0 0 1 4.5 0h8.75a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75h-2.5a.75.75 0 0 1 0-1.5h1.75v-2h-8a1 1 0 0 0-.71 1.71.75.75 0 0 1-1.06 1.06A2.5 2.5 0 0 1 2 11.5Zm10.5-1h-8a1 1 0 0 0-1 1v6.71A2.5 2.5 0 0 1 4.5 9h8ZM5 12.25a.25.25 0 0 1 .25-.25h3.5a.25.25 0 0 1 .25.25v3.25a.25.25 0 0 1-.4.2l-1.45-1.09a.25.25 0 0 0-.3 0L5.4 15.7a.25.25 0 0 1-.4-.2Z" fill="currentColor"/></svg>
+        <a href="https://github.com/Kiwamasi" target="_blank" rel="noopener">Kiwamasi</a>
+        <span class="stats-repo-slash">/</span>
+        <a href="https://github.com/Kiwamasi/Besaid-Island" target="_blank" rel="noopener"><strong>Besaid-Island</strong></a>
+        <span class="stats-pill">Public</span>
+      </h1>
+      <p class="stats-repo-meta" id="repoMeta">Loading repository…</p>
+    </div>
+
+    <ul class="stats-tiles" aria-label="Summary">
+      <li class="stats-tile"><span class="stats-tile-label">Views · 30 days</span><span class="stats-tile-value" id="tileViews30">–</span></li>
+      <li class="stats-tile"><span class="stats-tile-label">All-time views</span><span class="stats-tile-value" id="tileViewsTotal">–</span></li>
+      <li class="stats-tile"><span class="stats-tile-label">Games in backlog</span><span class="stats-tile-value" id="tileGames">–</span></li>
+      <li class="stats-tile"><span class="stats-tile-label">Accounts</span><span class="stats-tile-value" id="tileAccounts">–</span></li>
+      <li class="stats-tile"><span class="stats-tile-label">API</span><span class="stats-tile-value" id="tileApi"><span class="status-dot" data-state="pending"></span>Checking…</span></li>
+    </ul>
+
+    <div class="stats-layout">
+      <div class="stats-main">
+        <section class="stats-box admin-only" id="errorsBox" hidden aria-labelledby="errorsTitle">
+          <div class="stats-box-head">
+            <h2 class="stats-box-title" id="errorsTitle">Errors <span class="stats-count" id="errorsCount">0</span></h2>
+            <button class="stats-button" type="button" id="clearErrors">Clear</button>
+          </div>
+          <ul class="stats-list" id="errorsList"></ul>
+        </section>
+
+        <section class="stats-box" aria-labelledby="connectionTitle">
+          <div class="stats-box-head">
+            <h2 class="stats-box-title" id="connectionTitle">Your connection</h2>
+          </div>
+          <dl class="connection" id="connection">
+            <div class="connection-row">
+              <dt>IP address</dt>
+              <dd><code class="connection-ip" id="connectionIp">Loading…</code><button class="stats-button" type="button" id="copyIp" hidden>Copy</button><span class="connection-note">Dont worry we dont store this teehee~</span></dd>
+            </div>
+            <div class="connection-row">
+              <dt>Location</dt>
+              <dd id="connectionLocation">–</dd>
+            </div>
+            <div class="connection-row">
+              <dt>Time zone</dt>
+              <dd id="connectionTimezone">–</dd>
+            </div>
+          </dl>
+        </section>
+
+        <details class="stats-box stats-collapsible" open>
+          <summary class="stats-box-head">
+            <h2 class="stats-box-title" id="deploysTitle">
+              <svg class="icon stats-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z" fill="currentColor"/></svg>
+              Deployments
+            </h2>
+            <a class="stats-box-link" href="https://github.com/Kiwamasi/Besaid-Island/actions" target="_blank" rel="noopener">View all</a>
+          </summary>
+          <ul class="stats-list" id="deploysList"><li class="stats-empty">Loading…</li></ul>
+        </details>
+
+        <details class="stats-box stats-collapsible">
+          <summary class="stats-box-head">
+            <h2 class="stats-box-title" id="commitsTitle">
+              <svg class="icon stats-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z" fill="currentColor"/></svg>
+              Recent commits <span class="stats-count" id="commitsCount" hidden></span>
+            </h2>
+            <a class="stats-box-link" href="https://github.com/Kiwamasi/Besaid-Island/commits/main" target="_blank" rel="noopener">View all</a>
+          </summary>
+          <ul class="stats-list" id="commitsList"><li class="stats-empty">Loading…</li></ul>
+        </details>
+      </div>
+
+      <aside class="stats-side">
+        <section class="stats-side-section" aria-labelledby="languagesTitle">
+          <h2 class="stats-side-title" id="languagesTitle">Languages</h2>
+          <div class="lang-bar" id="langBar"></div>
+          <ul class="lang-list" id="langList"><li class="stats-empty">Loading…</li></ul>
+        </section>
+
+        <section class="stats-side-section" aria-labelledby="pagesTitle">
+          <h2 class="stats-side-title" id="pagesTitle">Top pages · 30 days</h2>
+          <ul class="bar-list" id="pagesList"><li class="stats-empty">Loading…</li></ul>
+        </section>
+
+        <section class="stats-side-section" aria-labelledby="backlogTitle">
+          <h2 class="stats-side-title" id="backlogTitle">Backlog</h2>
+          <ul class="bar-list" id="systemsList"><li class="stats-empty">Loading…</li></ul>
+          <h3 class="stats-side-subtitle">Recently added</h3>
+          <ul class="mini-list" id="recentGames"></ul>
+        </section>
+      </aside>
+    </div>
+  </main>
+
+  <script src="js/about.js"></script>
 </body>
 </html>

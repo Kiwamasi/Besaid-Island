@@ -1,0 +1,531 @@
+/* About page: site stats laid out like a GitHub repository page. Colours come from
+   css/site.css; the status colours below are only used here. */
+
+.stats {
+  --stats-box-bg: #232624;
+  --stats-hover: rgba(241, 240, 235, 0.04);
+  --stats-success: #8fc79a;
+  --stats-failure: #f0a58f;
+  --stats-pending: var(--site-accent);
+
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 2.5rem 2rem 4rem;
+  font-family: 'IBM Plex Sans', Arial, sans-serif;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.stats a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.stats a:hover,
+.stats a:focus-visible {
+  color: var(--site-accent);
+  text-decoration: underline;
+}
+
+.icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  vertical-align: text-bottom;
+}
+
+.stats-muted,
+.stats time {
+  color: var(--site-muted);
+}
+
+.stats-empty {
+  padding: 0.9rem 1rem;
+  color: var(--site-muted);
+  list-style: none;
+}
+
+/* ---------- Repository heading ---------- */
+
+.stats-repo {
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--site-line);
+}
+
+.stats-repo-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 1.25rem;
+  font-weight: 400;
+}
+
+.stats-repo-name .icon {
+  color: var(--site-muted);
+}
+
+.stats-repo-name strong {
+  font-weight: 600;
+}
+
+.stats-repo-slash {
+  color: var(--site-muted);
+}
+
+.stats-pill {
+  margin-left: 0.2rem;
+  border: 1px solid var(--site-line-strong);
+  border-radius: 999px;
+  padding: 0 0.5rem;
+  color: var(--site-muted);
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1.6;
+}
+
+.stats-repo-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 0.4rem;
+  margin-top: 0.4rem;
+  color: var(--site-muted);
+  font-size: 0.82rem;
+}
+
+.stats-repo-description {
+  flex-basis: 100%;
+  color: var(--site-ink);
+  font-size: 0.9rem;
+}
+
+.stats-dot-sep {
+  opacity: 0.6;
+}
+
+/* ---------- Summary tiles ---------- */
+
+.stats-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.75rem;
+  margin: 1.5rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stats-tile {
+  display: grid;
+  gap: 0.2rem;
+  border: 1px solid var(--site-line);
+  border-radius: 6px;
+  padding: 0.8rem 1rem;
+  background: var(--stats-box-bg);
+}
+
+.stats-tile-label {
+  color: var(--site-muted);
+  font-size: 0.75rem;
+}
+
+.stats-tile-value {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--site-ink);
+  font-size: 1.45rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+}
+
+#tileApi {
+  font-size: 0.95rem;
+  font-weight: 500;
+  min-height: 1.9rem;
+}
+
+.status-dot {
+  flex: none;
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: var(--stats-pending);
+}
+
+.status-dot[data-state="success"] { background: var(--stats-success); box-shadow: 0 0 0 3px rgba(143, 199, 154, 0.18); }
+.status-dot[data-state="failure"] { background: var(--stats-failure); box-shadow: 0 0 0 3px rgba(240, 165, 143, 0.18); }
+
+.status-success { color: var(--stats-success); }
+.status-failure { color: var(--stats-failure); }
+.status-pending { color: var(--stats-pending); }
+
+/* ---------- Boxes (GitHub's bordered panels) ---------- */
+
+.stats-box {
+  margin-bottom: 1.25rem;
+  border: 1px solid var(--site-line);
+  border-radius: 6px;
+  background: var(--stats-box-bg);
+  overflow: hidden;
+}
+
+.stats-box[hidden] {
+  display: none;
+}
+
+.stats-box-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid var(--site-line);
+  padding: 0.65rem 1rem;
+  background: rgba(241, 240, 235, 0.03);
+}
+
+.stats-box-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.stats-box-link {
+  color: var(--site-muted) !important;
+  font-size: 0.8rem;
+}
+
+.stats-count {
+  border-radius: 999px;
+  padding: 0 0.45rem;
+  background: rgba(241, 240, 235, 0.1);
+  color: var(--site-ink);
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1.6;
+}
+
+.stats-button {
+  border: 1px solid var(--site-line-strong);
+  border-radius: 6px;
+  padding: 0.2rem 0.7rem;
+  background: rgba(241, 240, 235, 0.05);
+  color: var(--site-ink);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.stats-button:hover:not(:disabled) {
+  border-color: var(--site-accent);
+  color: var(--site-accent);
+}
+
+.stats-button[hidden] {
+  display: none;
+}
+
+.stats-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stats-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  border-top: 1px solid var(--site-line);
+  padding: 0.7rem 1rem;
+}
+
+.stats-row:first-child {
+  border-top: 0;
+}
+
+.stats-row:hover {
+  background: var(--stats-hover);
+}
+
+.stats-row > .icon {
+  margin-top: 0.15rem;
+}
+
+.stats-row-body {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+
+.stats-row-title {
+  overflow: hidden;
+  color: var(--site-ink);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stats-error-message {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 0.8rem;
+  font-weight: 500;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.stats-row-meta {
+  color: var(--site-muted);
+  font-size: 0.78rem;
+}
+
+.stats-row-meta strong {
+  color: var(--site-ink);
+  font-weight: 500;
+}
+
+.stats-row-aside {
+  display: grid;
+  justify-items: end;
+  flex: none;
+  font-size: 0.78rem;
+}
+
+.stats-sha {
+  flex: none;
+  border: 1px solid var(--site-line);
+  border-radius: 6px;
+  padding: 0.1rem 0.45rem;
+  color: var(--site-muted) !important;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 0.75rem;
+}
+
+.connection-note {
+  color: var(--site-muted);
+  font-size: 0.75rem;
+}
+
+/* ---------- Your connection ---------- */
+
+.connection {
+  margin: 0;
+}
+
+.connection-row {
+  display: grid;
+  grid-template-columns: 7.5rem minmax(0, 1fr);
+  align-items: center;
+  gap: 1rem;
+  border-top: 1px solid var(--site-line);
+  padding: 0.6rem 1rem;
+}
+
+.connection-row:first-child {
+  border-top: 0;
+}
+
+.connection dt {
+  color: var(--site-muted);
+  font-size: 0.8rem;
+}
+
+.connection dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.connection-ip {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 0.85rem;
+}
+
+/* ---------- Collapsible box (Recent commits) ---------- */
+
+.stats-collapsible > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.stats-collapsible > summary::-webkit-details-marker {
+  display: none;
+}
+
+.stats-collapsible > summary:hover {
+  background: rgba(241, 240, 235, 0.06);
+}
+
+.stats-collapsible > summary:focus-visible {
+  outline: 2px solid var(--site-focus);
+  outline-offset: -2px;
+}
+
+.stats-collapsible:not([open]) > summary {
+  border-bottom: 0;
+}
+
+.stats-chevron {
+  color: var(--site-muted);
+  transition: transform 160ms ease;
+}
+
+.stats-collapsible[open] .stats-chevron {
+  transform: rotate(90deg);
+}
+
+/* ---------- Main column + sidebar ---------- */
+
+.stats-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 17rem;
+  gap: 1.5rem;
+}
+
+.stats-side-section {
+  border-bottom: 1px solid var(--site-line);
+  padding: 0 0 1.25rem;
+  margin-bottom: 1.25rem;
+}
+
+.stats-side-section:last-child {
+  border-bottom: 0;
+}
+
+.stats-side-title {
+  margin-bottom: 0.75rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.stats-side-subtitle {
+  margin: 1rem 0 0.4rem;
+  color: var(--site-muted);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.stats-side .stats-empty {
+  padding: 0;
+}
+
+.lang-bar {
+  display: flex;
+  gap: 2px;
+  height: 8px;
+  margin-bottom: 0.6rem;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.lang-bar:empty {
+  display: none;
+}
+
+.lang-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.8rem;
+}
+
+.lang-item {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.lang-item strong {
+  font-weight: 600;
+}
+
+.lang-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.bar-list,
+.mini-list {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.bar-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.25rem 0.5rem;
+  font-size: 0.82rem;
+}
+
+.bar-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bar-count {
+  color: var(--site-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.bar-fill {
+  grid-column: 1 / -1;
+  height: 6px;
+  min-width: 6px;
+  border-radius: 6px;
+  background: var(--site-accent);
+  opacity: 0.75;
+}
+
+.mini-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.82rem;
+}
+
+.mini-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mini-row time {
+  flex: none;
+  font-size: 0.75rem;
+}
+
+@media (max-width: 860px) {
+  .stats-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 520px) {
+  .stats {
+    padding: 1.5rem 1rem 3rem;
+  }
+
+  .stats-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .stats-tile-value {
+    font-size: 1.2rem;
+  }
+
+  .stats-row {
+    padding-inline: 0.75rem;
+  }
+}

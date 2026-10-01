@@ -15,17 +15,19 @@ The site is plain HTML, CSS and JavaScript, hosted on **GitHub Pages**. The shar
 
 ### Project layout
 
-- `index.html`, `backlog.html`, `dark_cloud_2_idea_book.html`: the pages. They stay in the root so their addresses don't change.
+- `index.html`, `backlog.html`, `about.html`, `dark_cloud_2_idea_book.html`: the pages. About shows the site stats. They stay in the root so their addresses don't change.
 - `css/`
   - `site.css`: shared by every page. The theme colours (as variables at the top), the header, the account controls, dialogs, buttons and form fields.
   - `base.css`: the reset and page background for Home and Backlog.
-  - `home.css`, `backlog.css`: page-specific styles. The Dark Cloud 2 page keeps its styles inline.
+  - `home.css`, `backlog.css`, `about.css`: page-specific styles. The Dark Cloud 2 page keeps its styles inline.
 - `js/`
   - `site-header.js`: builds the header and its nav links on every page.
   - `site-config.js`: where the pages find the backlog and accounts on Netlify.
   - `site-account.js`: signing in, creating an account and signing out, on every page.
+  - `site-telemetry.js`: counts page views and reports JavaScript errors for the About page stats, on every page.
   - `local-mock-api.js`: a stand-in for Netlify while testing changes locally (see below).
   - `backlog.js`: the backlog page.
+  - `about.js`: the About page stats (from GitHub and from Netlify).
   - `home.js`: the floating hover effect on the home page cards.
 - `assets/`: images and icons.
 - `netlify/`, `netlify.toml`, `package.json`: the small backlog and account service that runs on Netlify.
@@ -47,6 +49,7 @@ and starts its `<body>` with:
 <script src="js/site-config.js"></script>
 <script src="js/local-mock-api.js"></script>
 <script src="js/site-account.js"></script>
+<script src="js/site-telemetry.js"></script>
 ```
 
 - **Nav links:** `NAV_LINKS` in `js/site-header.js` is the one list of links, used on every page.

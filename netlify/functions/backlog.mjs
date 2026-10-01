@@ -9,6 +9,12 @@ const ACCOUNT_KEY_PREFIX = 'user-';
 const MAX_GAMES = 500;
 const MAX_ACCOUNTS = 1000;
 const ADMIN_USERNAME = 'kiwamari';
+// Page views and client/server errors shown on the About (stats) page.
+const STATS_STORE_NAME = 'site-stats';
+const VIEWS_KEY = 'views';
+const ERRORS_KEY = 'errors';
+const VIEW_DAYS_KEPT = 371;
+const MAX_ERRORS = 50;
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://kiwamasi.github.io';
 const scrypt = promisify(scryptCallback);
 const HEADERS = {
@@ -121,7 +127,84 @@ function cleanGame(game) {
   };
 }
 
-export default async (request) => {
+// ---------- Site stats ----------
+
+function statsStore() {
+  return getStore({ name: STATS_STORE_NAME, consistency: 'strong' });
+}
+
+// Read-modify-write that retries if another request changed the blob in between.
+async function updateJson(store, key, change) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const existing = await store.getWithMetadata(key, { type: 'json' });
+    const next = change(existing?.data ?? null);
+    const result = existing
+      ? await store.setJSON(key, next, { onlyIfMatch: existing.etag })
+      : await store.setJSON(key, next, { onlyIfNew: true });
+    if (result.modified) return;
+  }
+  throw new Error(`Could not update ${key}`);
+}
+
+function validPage(page) {
+  return typeof page === 'string' && /^[a-zA-Z0-9_-]{1,80}\.html$/.test(page);
+}
+
+// views = { totals: { page: n }, days: { 'YYYY-MM-DD': { page: n } } } (UTC days).
+async function recordView(page) {
+  const today = new Date().toISOString().slice(0, 10);
+  const oldest = new Date(Date.now() - VIEW_DAYS_KEPT * 86400000).toISOString().slice(0, 10);
+  await updateJson(statsStore(), VIEWS_KEY, (views) => {
+    const totals = views?.totals || {};
+    const days = {};
+    for (const [day, pages] of Object.entries(views?.days || {})) {
+      if (day >= oldest) days[day] = pages;
+    }
+    totals[page] = (totals[page] || 0) + 1;
+    days[today] = { ...days[today], [page]: (days[today]?.[page] || 0) + 1 };
+    return { totals, days };
+  });
+}
+
+function cleanText(value, maxLength) {
+  return typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
+}
+
+// Newest first. A repeat of the same error bumps its count instead of adding a row.
+async function recordError(report) {
+  const error = {
+    message: cleanText(report.message, 300) || 'Unknown error',
+    source: cleanText(report.source, 200),
+    line: Number.isInteger(report.line) && report.line > 0 ? report.line : null,
+    page: cleanText(report.page, 80),
+    at: Date.now()
+  };
+  await updateJson(statsStore(), ERRORS_KEY, (errors) => {
+    const list = Array.isArray(errors) ? errors : [];
+    const same = list.find(entry => entry.message === error.message
+      && entry.source === error.source && entry.line === error.line);
+    const count = (same?.count || 0) + 1;
+    return [{ ...error, count }, ...list.filter(entry => entry !== same)].slice(0, MAX_ERRORS);
+  });
+}
+
+async function readStats(session) {
+  const store = statsStore();
+  const accounts = getStore({ name: ACCOUNT_STORE_NAME, consistency: 'strong' });
+  const [views, { blobs }, errors] = await Promise.all([
+    store.get(VIEWS_KEY, { type: 'json' }),
+    accounts.list({ prefix: ACCOUNT_KEY_PREFIX }),
+    session?.canEdit ? store.get(ERRORS_KEY, { type: 'json' }) : null
+  ]);
+  return {
+    views: views || { totals: {}, days: {} },
+    // The admin account lives in the environment, not in the store.
+    accounts: blobs.length + 1,
+    ...(session?.canEdit ? { errors: errors || [] } : {})
+  };
+}
+
+export default async (request, context) => {
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders(request) });
   }
@@ -129,6 +212,17 @@ export default async (request) => {
   let pendingRegistration = null;
   try {
     const body = ['POST', 'DELETE'].includes(request.method) ? await request.json() : null;
+
+    // Sent by js/site-telemetry.js from every page; no sign-in needed.
+    if (request.method === 'POST' && body?.action === 'view') {
+      if (!validPage(body.page)) return respond(request, 400, { error: 'Invalid page' });
+      await recordView(body.page);
+      return respond(request, 200, { recorded: true });
+    }
+    if (request.method === 'POST' && body?.action === 'error') {
+      await recordError(body);
+      return respond(request, 200, { recorded: true });
+    }
 
     if (request.method === 'POST' && ['login', 'register'].includes(body?.action)) {
       if (!secretsConfigured()) return respond(request, 503, { error: 'Account service is not configured yet' });
@@ -192,6 +286,22 @@ export default async (request) => {
       if (new URL(request.url).searchParams.has('session')) {
         return respond(request, 200, { user });
       }
+      // Errors are only included for the admin.
+      if (new URL(request.url).searchParams.has('stats')) {
+        return respond(request, 200, await readStats(session));
+      }
+      // The visitor's own IP and rough location, from Netlify. Not stored.
+      if (new URL(request.url).searchParams.has('whoami')) {
+        const geo = context?.geo || {};
+        return respond(request, 200, {
+          ip: context?.ip || request.headers.get('x-nf-client-connection-ip') || null,
+          city: geo.city || null,
+          region: geo.subdivision?.name || null,
+          country: geo.country?.name || null,
+          countryCode: geo.country?.code || null,
+          timezone: geo.timezone || null
+        });
+      }
 
       const store = getStore({ name: STORE_NAME, consistency: 'strong' });
       const { blobs } = await store.list({ prefix: KEY_PREFIX });
@@ -207,6 +317,11 @@ export default async (request) => {
     if (!session.canEdit) return respond(request, 403, { error: 'Only admins can edit the backlog' });
 
     const store = getStore({ name: STORE_NAME, consistency: 'strong' });
+
+    if (request.method === 'POST' && body?.action === 'clear-errors') {
+      await statsStore().setJSON(ERRORS_KEY, []);
+      return respond(request, 200, { cleared: true });
+    }
 
     if (request.method === 'POST') {
       const game = cleanGame(body.game);
@@ -235,6 +350,11 @@ export default async (request) => {
     return respond(request, 405, { error: 'Method not allowed' });
   } catch (error) {
     console.error('Backlog storage request failed', error);
+    try {
+      await recordError({ message: `API: ${error.message}`, source: `netlify function (${request.method})`, page: '' });
+    } catch {
+      // Storage itself may be what failed; the console log above still has it.
+    }
     if (pendingRegistration) {
       try {
         const accounts = getStore({ name: ACCOUNT_STORE_NAME, consistency: 'strong' });

@@ -101,6 +101,11 @@
       setState('unavailable', null);
       return;
     }
+    // No token means signed out; there's nothing for the server to check.
+    if (!token) {
+      setState('ready', null);
+      return;
+    }
     // With a remembered user, show them now and re-check quietly in the background.
     const remembered = cachedUser();
     if (remembered) setState('ready', remembered);

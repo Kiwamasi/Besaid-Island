@@ -20,6 +20,8 @@
   const GAMES_KEY = 'besaid-mock-backlog';
   const ACCOUNTS_KEY = 'besaid-mock-accounts';
   const SEEDED_KEY = 'besaid-mock-admin-seeded';
+  const VIEWS_KEY = 'besaid-mock-views';
+  const ERRORS_KEY = 'besaid-mock-errors';
   const TOKEN_PREFIX = 'local-mock.';
   const ADMIN_USERNAME = 'kiwamari';
   const MAX_GAMES = 500;
@@ -103,6 +105,33 @@
     }
     const games = read(GAMES_KEY, []);
 
+    if (method === 'POST' && body?.action === 'view') {
+      if (typeof body.page !== 'string' || !/^[a-zA-Z0-9_-]{1,80}\.html$/.test(body.page)) {
+        return json(400, { error: 'Invalid page' });
+      }
+      const views = read(VIEWS_KEY, { totals: {}, days: {} });
+      const today = new Date().toISOString().slice(0, 10);
+      views.totals[body.page] = (views.totals[body.page] || 0) + 1;
+      views.days[today] = { ...views.days[today], [body.page]: (views.days[today]?.[body.page] || 0) + 1 };
+      localStorage.setItem(VIEWS_KEY, JSON.stringify(views));
+      return json(200, { recorded: true });
+    }
+    if (method === 'POST' && body?.action === 'error') {
+      const errors = read(ERRORS_KEY, []);
+      const error = {
+        message: String(body.message || 'Unknown error').slice(0, 300),
+        source: String(body.source || '').slice(0, 200),
+        line: Number.isInteger(body.line) && body.line > 0 ? body.line : null,
+        page: String(body.page || '').slice(0, 80),
+        at: Date.now()
+      };
+      const same = errors.find(entry => entry.message === error.message
+        && entry.source === error.source && entry.line === error.line);
+      const next = [{ ...error, count: (same?.count || 0) + 1 }, ...errors.filter(entry => entry !== same)];
+      localStorage.setItem(ERRORS_KEY, JSON.stringify(next.slice(0, 50)));
+      return json(200, { recorded: true });
+    }
+
     if (method === 'POST' && ['login', 'register'].includes(body?.action)) {
       const suppliedUsername = typeof body.username === 'string' ? body.username.trim() : '';
       const username = suppliedUsername.toLowerCase();
@@ -132,12 +161,34 @@
     if (method === 'GET') {
       const user = sessionUser(options.headers);
       if (url.searchParams.has('session')) return json(200, { user });
+      if (url.searchParams.has('whoami')) {
+        return json(200, {
+          ip: '127.0.0.1',
+          city: 'Local',
+          region: null,
+          country: 'Mock API',
+          countryCode: null,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+        });
+      }
+      if (url.searchParams.has('stats')) {
+        return json(200, {
+          views: read(VIEWS_KEY, { totals: {}, days: {} }),
+          accounts: Object.keys(read(ACCOUNTS_KEY, {})).length + 1,
+          ...(user?.canEdit ? { errors: read(ERRORS_KEY, []) } : {})
+        });
+      }
       return json(200, { games, user });
     }
 
     const user = sessionUser(options.headers);
     if (!user) return json(401, { error: 'Please sign in again' });
     if (!user.canEdit) return json(403, { error: 'Only admins can edit the backlog' });
+
+    if (method === 'POST' && body?.action === 'clear-errors') {
+      localStorage.setItem(ERRORS_KEY, '[]');
+      return json(200, { cleared: true });
+    }
 
     if (method === 'POST') {
       const game = cleanGame(body.game);
