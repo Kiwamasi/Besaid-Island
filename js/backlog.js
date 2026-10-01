@@ -264,6 +264,15 @@ function createAddSlot(system) {
   button.title = 'Add game';
   button.setAttribute('aria-label', `Add a ${system} game`);
   button.addEventListener('click', () => openDraft(system));
+  // Type to start: with the "+" focused, typing a character opens the slot with
+  // that character already in the name, so "Borderlands" can just be typed.
+  // Space and Enter keep their normal "press the button" behaviour.
+  button.addEventListener('keydown', event => {
+    const typed = event.key.length === 1 && event.key !== ' ';
+    if (!typed || event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return;
+    event.preventDefault();
+    openDraft(system, event.key);
+  });
   item.append(button);
   return item;
 }
@@ -331,11 +340,14 @@ function refocusOpener(closed) {
   findSlot(id)?.querySelector(selector)?.focus();
 }
 
-async function openDraft(system) {
+async function openDraft(system, initialTitle = '') {
   if (!canEdit() || !apiReady) return;
   if (draft && !draft.closing) finishDraft();
-  draft = { mode: 'add', system, title: '', note: '', focus: 'title', closing: false };
+  draft = { mode: 'add', system, title: initialTitle, note: '', focus: 'title', closing: false };
   renderAndSlide({ draft: findSlot(`add:${system}`)?.getBoundingClientRect() });
+  // Keep typing after any character that opened the slot.
+  const title = list.querySelector('.game-draft .draft-title');
+  title?.setSelectionRange(title.value.length, title.value.length);
   await pop(list.querySelector('.game-draft'), POP_IN, { duration: 240, easing: 'ease-out' });
 }
 
