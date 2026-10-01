@@ -13,7 +13,6 @@ const ADMIN_USERNAME = 'kiwamari';
 const STATS_STORE_NAME = 'site-stats';
 const VIEWS_KEY = 'views';
 const ERRORS_KEY = 'errors';
-const VIEW_DAYS_KEPT = 371;
 const MAX_ERRORS = 50;
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://kiwamasi.github.io';
 const scrypt = promisify(scryptCallback);
@@ -151,15 +150,12 @@ function validPage(page) {
 }
 
 // views = { totals: { page: n }, days: { 'YYYY-MM-DD': { page: n } } } (UTC days).
+// Kept forever: a day only adds a few bytes per page.
 async function recordView(page) {
   const today = new Date().toISOString().slice(0, 10);
-  const oldest = new Date(Date.now() - VIEW_DAYS_KEPT * 86400000).toISOString().slice(0, 10);
   await updateJson(statsStore(), VIEWS_KEY, (views) => {
     const totals = views?.totals || {};
-    const days = {};
-    for (const [day, pages] of Object.entries(views?.days || {})) {
-      if (day >= oldest) days[day] = pages;
-    }
+    const days = views?.days || {};
     totals[page] = (totals[page] || 0) + 1;
     days[today] = { ...days[today], [page]: (days[today]?.[page] || 0) + 1 };
     return { totals, days };

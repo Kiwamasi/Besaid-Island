@@ -1,4 +1,4 @@
-// About page: site stats laid out like a GitHub repository page.
+// Stats page (about.html): site stats laid out like a GitHub repository page.
 // - Repository, deployments, commits and languages come from the public GitHub API.
 //   They're cached in this browser for 10 minutes to stay well under GitHub's limit
 //   of 60 requests an hour per visitor.
@@ -15,7 +15,7 @@ const LANGUAGE_COLORS = { HTML: '#e34c26', CSS: '#663399', JavaScript: '#f1e05a'
 const PAGE_NAMES = {
   'index.html': 'Home',
   'backlog.html': 'Backlog',
-  'about.html': 'About',
+  'about.html': 'Stats',
   'dark_cloud_2_idea_book.html': 'Dark Cloud 2 idea book'
 };
 const SYSTEM_ORDER = ['PS5', 'PS3', 'Misc'];
@@ -292,8 +292,8 @@ function renderViews(views) {
   $('tileViewsTotal').textContent = numberFormat.format(dayTotal(views.totals));
   renderBars(
     $('pagesList'),
-    Object.entries(pageCounts).sort((a, b) => b[1] - a[1]).map(([page, count]) => [PAGE_NAMES[page] || page, count]),
-    'No views in the last 30 days.'
+    Object.entries(views.totals || {}).sort((a, b) => b[1] - a[1]).map(([page, count]) => [PAGE_NAMES[page] || page, count]),
+    'No views yet.'
   );
 }
 
