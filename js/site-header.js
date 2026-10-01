@@ -6,7 +6,7 @@
   const NAV_LINKS = [
     { href: 'index.html', label: 'Home' },
     { href: 'backlog.html', label: 'Backlog' },
-    { href: '#', label: 'Portfolio' }
+    { href: 'about.html', label: 'About' }
   ];
 
   const header = document.querySelector('.site-header');

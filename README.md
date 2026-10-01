@@ -1,7 +1,5 @@
 # Besaid Island
 
-Kiwamari's little corner of the web: a hobby site for the games I'm into, the guides I keep while playing them, and a place to try out ideas.
-
 Visit it at: https://kiwamasi.github.io/Besaid-Island/
 
 ## What's on the site

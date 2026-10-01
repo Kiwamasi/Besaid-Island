@@ -20,6 +20,10 @@
   const accountName = accountControl.querySelector('.account-name');
   const signOutButton = accountControl.querySelector('.site-account-signout');
 
+  // The last confirmed user, stored with the token it belongs to, so the header can
+  // show the name straight away on each page load while the session is re-checked.
+  const USER_KEY = 'besaid-backlog-user';
+
   let token = localStorage.getItem(SESSION_KEY);
   let status = 'checking';
   let user = null;
@@ -61,9 +65,23 @@
     else localStorage.removeItem(SESSION_KEY);
   }
 
+  // Only display uses this; the API still checks the token on every request.
+  function cachedUser() {
+    try {
+      const cached = JSON.parse(localStorage.getItem(USER_KEY));
+      return token && cached?.token === token ? cached.user : null;
+    } catch {
+      return null;
+    }
+  }
+
   function setState(nextStatus, nextUser) {
     status = nextStatus;
     user = nextUser;
+    if (status === 'ready') {
+      if (token && user) localStorage.setItem(USER_KEY, JSON.stringify({ token, user }));
+      else localStorage.removeItem(USER_KEY);
+    }
     renderHeader();
     document.dispatchEvent(new CustomEvent('site-account-change'));
   }
@@ -83,14 +101,19 @@
       setState('unavailable', null);
       return;
     }
-    setState('checking', null);
+    // With a remembered user, show them now and re-check quietly in the background.
+    const remembered = cachedUser();
+    if (remembered) setState('ready', remembered);
+    else setState('checking', null);
     try {
       const result = await request('GET', null, '?session=1');
       if (version !== sessionVersion) return;
       if (!result.user && token) setToken(null);
       setState('ready', result.user || null);
     } catch {
-      if (version === sessionVersion) setState('unavailable', null);
+      // A failed check is a network/server problem, not a bad token (that returns
+      // user: null), so keep showing a remembered user.
+      if (version === sessionVersion && !remembered) setState('unavailable', null);
     }
   }
 
@@ -224,11 +247,24 @@
   signInButton.addEventListener('click', openDialog);
   signOutButton.addEventListener('click', signOut);
 
-  // Keep tabs in sync when the session changes in another tab.
-  window.addEventListener('storage', event => {
-    if (event.key !== SESSION_KEY) return;
-    token = event.newValue;
+  // Keep pages in sync when the session changes elsewhere. The storage event covers
+  // other open tabs, but it misses pages restored by Back/Forward (the browser keeps
+  // the old page as it was) and isn't fired between file:// pages in some browsers,
+  // so also re-read the token whenever a page is shown again.
+  function syncSession() {
+    const storedToken = localStorage.getItem(SESSION_KEY);
+    if (storedToken === token) return;
+    token = storedToken;
     checkSession();
+  }
+  window.addEventListener('storage', event => {
+    if (event.key === SESSION_KEY) syncSession();
+  });
+  window.addEventListener('pageshow', event => {
+    if (event.persisted) syncSession();
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') syncSession();
   });
 
   window.siteAccount = {
