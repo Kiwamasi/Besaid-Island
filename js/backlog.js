@@ -291,7 +291,14 @@ function createDraftSlot() {
   note.setAttribute('aria-label', 'Note (optional)');
 
   for (const input of [title, note]) {
-    input.addEventListener('input', () => { draft[input.name] = input.value; });
+    input.addEventListener('input', () => {
+      draft[input.name] = input.value;
+      // Typing again clears a "duplicate" error.
+      if (draft.error) {
+        draft.error = null;
+        item.querySelector('.draft-error')?.remove();
+      }
+    });
     input.addEventListener('focus', () => { draft.focus = input.name; });
     input.addEventListener('keydown', event => {
       if (event.key === 'Enter') {
@@ -312,14 +319,47 @@ function createDraftSlot() {
     setTimeout(() => {
       if (!draft || !item.isConnected || item.contains(document.activeElement) || !document.hasFocus()) return;
       draft.focus = null;
-      finishDraft();
-      nextAction?.();
+      if (finishDraft()) nextAction?.();
     });
   });
 
   details.append(title, note);
   item.append(details);
+  if (draft.error) item.append(createDraftError(draft.error));
   return item;
+}
+
+function createDraftError(message) {
+  const error = createElement('p', 'draft-error', message);
+  error.setAttribute('role', 'alert');
+  return error;
+}
+
+function isDuplicateTitle(title, exceptId) {
+  return games.find(game => game.id !== exceptId && titleOrder.compare(game.title.trim(), title.trim()) === 0);
+}
+
+// Duplicate name: shake the slot, show a small error under it, and keep it open
+// with the cursor back in the name box. Nothing is saved.
+function rejectDraft(message) {
+  draft.error = message;
+  draft.focus = 'title';
+  const slot = list.querySelector('.game-draft');
+  if (!slot) return;
+  slot.querySelector('.draft-error')?.remove();
+  slot.append(createDraftError(message));
+  const title = slot.querySelector('.draft-title');
+  title.focus();
+  title.setSelectionRange(title.value.length, title.value.length);
+  playAnimation(slot, [
+    { transform: 'translateX(0)' },
+    { transform: 'translateX(-6px)' },
+    { transform: 'translateX(6px)' },
+    { transform: 'translateX(-4px)' },
+    { transform: 'translateX(4px)' },
+    { transform: 'translateX(-2px)' },
+    { transform: 'translateX(0)' }
+  ], { duration: 360, easing: 'ease-in-out' });
 }
 
 function actionFor(target) {
@@ -342,7 +382,7 @@ function refocusOpener(closed) {
 
 async function openDraft(system, initialTitle = '') {
   if (!canEdit() || !apiReady) return;
-  if (draft && !draft.closing) finishDraft();
+  if (draft && !draft.closing && !finishDraft()) return;
   draft = { mode: 'add', system, title: initialTitle, note: '', focus: 'title', closing: false };
   renderAndSlide({ draft: findSlot(`add:${system}`)?.getBoundingClientRect() });
   // Keep typing after any character that opened the slot.
@@ -353,7 +393,7 @@ async function openDraft(system, initialTitle = '') {
 
 async function openEdit(gameId) {
   if (!canEdit() || !apiReady) return;
-  if (draft && !draft.closing) finishDraft();
+  if (draft && !draft.closing && !finishDraft()) return;
   const game = games.find(entry => entry.id === gameId);
   if (!game) return;
   draft = {
@@ -388,14 +428,21 @@ async function cancelDraft({ refocus = false } = {}) {
   if (refocus) refocusOpener(closing);
 }
 
+// Returns false if the slot had to stay open (a duplicate name), true otherwise.
 function finishDraft({ refocus = false } = {}) {
-  if (!draft || draft.closing) return;
+  if (!draft || draft.closing) return true;
   if (!draft.title.trim()) {
     cancelDraft({ refocus });
-    return;
+    return true;
+  }
+  const duplicate = isDuplicateTitle(draft.title, draft.mode === 'edit' ? draft.gameId : null);
+  if (duplicate) {
+    rejectDraft(`Already in the backlog (${systemForGame(duplicate)})`);
+    return false;
   }
   if (draft.mode === 'edit') saveEdit({ refocus });
   else saveNewGame({ refocus });
+  return true;
 }
 
 function saveNewGame({ refocus }) {
