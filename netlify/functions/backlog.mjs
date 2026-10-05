@@ -18,11 +18,11 @@ const MAX_ERRORS = 50;
 // Netlify's environment variables). The "-latest" aliases always point at Google's
 // current Flash models, so retired model versions never need changing here.
 // GEMINI_MODEL can name a specific model to try first.
-// Broad genres only; Gemini has to pick one of these. Souls-Like is the one
-// sub-genre, and the prompt asks for it by name.
+// Broad genres only; Gemini has to pick one of these. The prompt in askGemini
+// explains Souls-Like and Builder, and that strategy games go under RPG.
 const GAME_CATEGORIES = [
-  'Action', 'Action RPG', 'Adventure', 'Fighting', 'Horror', 'Platformer', 'Puzzle',
-  'Racing', 'RPG', 'Shooter', 'Simulation', 'Souls-Like', 'Sports', 'Strategy', 'Other'
+  'Action', 'Action RPG', 'Adventure', 'Builder', 'Fighting', 'Horror', 'Platformer', 'Puzzle',
+  'Racing', 'RPG', 'Shooter', 'Simulation', 'Souls-Like', 'Sports', 'Other'
 ];
 // Google has no API for remaining quota, so Gemini calls are counted here for the
 // Stats page, per Pacific day because that's when Google resets daily limits.
@@ -184,10 +184,10 @@ async function categorizeGame(game) {
     try {
       // Thinking is turned down because it's slow and a genre doesn't need it. If a
       // future model rejects that setting (HTTP 400), ask again without it.
-      let response = await askGemini(model, game.title, true, timeout);
+      let response = await askGemini(model, seriesTitle(game.title), true, timeout);
       if (response.status === 400 && timeLeft() >= GEMINI_MIN_TRY_MS) {
         timeout = timeLeft();
-        response = await askGemini(model, game.title, false, timeout);
+        response = await askGemini(model, seriesTitle(game.title), false, timeout);
       }
       if (!response.ok) {
         const detail = (await response.json().catch(() => null))?.error?.message || '';
@@ -213,6 +213,13 @@ async function categorizeGame(game) {
   return '';
 }
 
+// Several games of a series share one slot by ending in numbers split by slashes
+// ("Dark Souls 1/2/3"). Gemini is asked about the series name ("Dark Souls"), as
+// "1/2/3" isn't part of any real title. Anything else is sent as it is.
+function seriesTitle(title) {
+  return title.replace(/\s*\d+(?:\s*\/\s*\d+)+\s*$/, '') || title;
+}
+
 function askGemini(model, title, lowThinking, timeout) {
   return fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
@@ -225,8 +232,10 @@ function askGemini(model, title, lowThinking, timeout) {
           role: 'user',
           parts: [{
             text: `What genre is the video game "${title}"? Give its broad main genre, not a sub-genre.`
-              + ' The one exception: if it\'s a soulslike (like Dark Souls, Sekiro or Code Vein),'
-              + ' answer "Souls-Like". Answer "Other" if you don\'t recognise the game.'
+              + ' Except: if it\'s a soulslike (like Dark Souls, Sekiro or Code Vein),'
+              + ' answer "Souls-Like". Building and sandbox games (like Minecraft) are "Builder".'
+              + ' Strategy and tactics games count as "RPG".'
+              + ' Answer "Other" if you don\'t recognise the game.'
           }]
         }],
         generationConfig: {
