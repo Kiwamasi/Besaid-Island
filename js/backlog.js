@@ -1,6 +1,9 @@
 // Backlog page: loads, filters, adds, edits and removes games. Who is signed in
 // (and whether they can edit) comes from the shared js/site-account.js.
 //
+// Each game's genre ("RPG", "Shooter"…) is picked by the server when it's saved,
+// and shown after its note in brackets: "Replaying on hard (RPG)", or just "(RPG)".
+//
 // Admins edit inline with a "slot": a game-shaped box with a name and a note field.
 // - The green "+" at the end of each section opens an empty slot to add a game.
 // - The pen on a game turns it into a slot filled in with its name and note.
@@ -112,7 +115,7 @@ function render({ fadeIn = true } = {}) {
   list.classList.toggle('no-fade-in', !fadeIn);
   const query = searchInput.value.trim().toLocaleLowerCase();
   const visibleGames = games.filter(game =>
-    `${game.title} ${game.platform} ${game.note}`.toLocaleLowerCase().includes(query)
+    `${game.title} ${game.platform} ${game.category || ''} ${game.note}`.toLocaleLowerCase().includes(query)
   );
   // Admins always see every section (even empty ones) so they can add to it.
   const editing = canEdit() && apiReady;
@@ -185,6 +188,38 @@ async function loadGames() {
     saveNote.textContent = `Shared backlog unavailable: ${error.message}`;
   }
   render();
+  fillMissingCategories();
+}
+
+// Games saved before genres existed, or while the genre service was down, get one
+// now. The server does a few per request, so keep asking while it makes progress.
+async function fillMissingCategories() {
+  while (canEdit() && apiReady && games.some(game => !game.category)) {
+    let result;
+    try {
+      result = await account.request('POST', { action: 'categorize' });
+    } catch {
+      return;
+    }
+    const categorized = Array.isArray(result.games) ? result.games : [];
+    if (!categorized.length) return;
+    categorized.forEach(showCategory);
+  }
+}
+
+// Puts a genre from the server into the list without redrawing everything,
+// so an open slot keeps its cursor.
+function showCategory({ id, category }) {
+  const game = games.find(entry => entry.id === id);
+  if (!game) return;
+  const updated = { ...game, category };
+  games = games.map(entry => entry === game ? updated : entry);
+  const slot = findSlot(id);
+  if (!slot || slot.classList.contains('game-draft')) return;
+  const focused = [...slot.querySelectorAll('button')].find(button => button === document.activeElement);
+  const row = createGameRow(updated);
+  slot.replaceWith(row);
+  if (focused) row.querySelector(`.${focused.classList[0]}`)?.focus();
 }
 
 // ---------- Games ----------
@@ -194,12 +229,14 @@ function createGameRow(game) {
   item.dataset.id = game.id;
   const details = createElement('div', 'game-entry-details');
   // Title and note can be cut off with "…", so hovering shows them in full.
-  details.title = game.note ? `${game.title}\n${game.note}` : game.title;
+  const noteLine = [game.note, game.category && `(${game.category})`].filter(Boolean).join(' ');
+  details.title = noteLine ? `${game.title}\n${noteLine}` : game.title;
   details.append(createElement('h2', '', game.title));
 
-  if (game.note) {
+  if (game.category || game.note) {
     const meta = createElement('p', 'game-entry-meta');
-    meta.append(createElement('span', 'game-note', game.note));
+    if (game.note) meta.append(createElement('span', 'game-note', game.note));
+    if (game.category) meta.append(createElement('span', 'game-category', `(${game.category})`));
     details.append(meta);
   }
 
@@ -466,6 +503,7 @@ function saveNewGame({ refocus }) {
   account.request('POST', { game })
     .then(result => {
       games = games.map(entry => entry.id === game.id ? result.game : entry);
+      if (result.game.category) showCategory(result.game);
       saveNote.textContent = 'Shared backlog saved';
     })
     .catch(error => {
@@ -502,6 +540,7 @@ function saveEdit({ refocus }) {
   account.request('POST', { game: updated })
     .then(result => {
       games = games.map(entry => entry.id === original.id ? result.game : entry);
+      if (result.game.category !== original.category) showCategory(result.game);
       saveNote.textContent = 'Shared backlog saved';
     })
     .catch(error => {

@@ -4,6 +4,8 @@
 //   of 60 requests an hour per visitor.
 // - Page views, accounts and errors come from the site API (netlify/functions/backlog.mjs),
 //   counted by js/site-telemetry.js. Errors are only sent to the admin.
+// - Gemini usage (admin only) is the site API's own count of its calls to Google for
+//   game genres. Google has no API for remaining quota; AI Studio shows the real limits.
 const account = window.siteAccount;
 const REPO = 'Kiwamasi/Besaid-Island';
 const GITHUB_API = `https://api.github.com/repos/${REPO}`;
@@ -321,6 +323,45 @@ function renderErrors(errors) {
   }));
 }
 
+// Days are Pacific dates ('YYYY-MM-DD'), as Google resets daily limits at midnight Pacific.
+function renderGemini(gemini) {
+  const box = $('geminiBox');
+  box.hidden = !gemini;
+  if (!gemini) return;
+  const days = gemini.days || {};
+  const today = { ok: 0, limited: 0, failed: 0, tokens: 0, ...days[gemini.today] };
+  const requests = day => day.ok + day.limited + day.failed;
+  const month = Object.values(days).reduce((sum, day) => ({
+    requests: sum.requests + requests(day),
+    tokens: sum.tokens + day.tokens
+  }), { requests: 0, tokens: 0 });
+
+  const todayText = gemini.dailyLimit
+    ? `${numberFormat.format(requests(today))} / ${numberFormat.format(gemini.dailyLimit)} requests`
+    : `${numberFormat.format(requests(today))} requests`;
+  const breakdown = [
+    `${numberFormat.format(today.ok)} answered`,
+    today.limited && `${numberFormat.format(today.limited)} over limit`,
+    today.failed && `${numberFormat.format(today.failed)} failed`,
+    `${numberFormat.format(today.tokens)} tokens`
+  ].filter(Boolean).join(' · ');
+
+  const rows = [
+    ['Status', gemini.configured ? 'Key set' : 'GEMINI_API_KEY not set on Netlify'],
+    ['Today', `${todayText} · ${breakdown}`],
+    ['Last 30 days', `${numberFormat.format(month.requests)} requests · ${numberFormat.format(month.tokens)} tokens`],
+    ['Last over limit', gemini.lastLimitedAt ? timeElement(gemini.lastLimitedAt) : 'Never'],
+    ['Daily reset', 'Midnight Pacific time']
+  ];
+  $('geminiUsage').replaceChildren(...rows.map(([label, value]) => {
+    const row = el('div', 'connection-row');
+    const dd = el('dd');
+    dd.append(value);
+    row.append(el('dt', '', label), dd);
+    return row;
+  }));
+}
+
 let statsLoadedAsAdmin = null;
 
 async function loadSiteStats() {
@@ -330,10 +371,12 @@ async function loadSiteStats() {
     renderViews(stats.views);
     $('tileAccounts').textContent = numberFormat.format(stats.accounts);
     renderErrors(stats.errors);
+    renderGemini(stats.gemini);
   } catch (error) {
     const message = `Stats unavailable: ${error.message}`;
     showEmpty($('pagesList'), message);
     renderErrors(null);
+    renderGemini(null);
   }
 }
 
@@ -423,7 +466,7 @@ $('clearErrors').addEventListener('click', async () => {
   }
 });
 
-// Errors are admin-only, so reload when someone signs in or out as admin.
+// Errors and Gemini usage are admin-only, so reload when someone signs in or out as admin.
 document.addEventListener('site-account-change', () => {
   if (account.status === 'ready' && Boolean(account.user?.canEdit) !== statsLoadedAsAdmin) loadSiteStats();
 });

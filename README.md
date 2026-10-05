@@ -6,7 +6,7 @@ Visit it at: https://kiwamasi.github.io/Besaid-Island/
 
 - **Home** (`index.html`): a grid of game cards. Each card opens that game's guide. There's one so far, for Dark Cloud 2.
 - **Dark Cloud 2 Photography & Scoop Log** (`dark_cloud_2_idea_book.html`): a checklist of every Scoop, Idea and Badge in Dark Cloud 2, with a tab per chapter plus a Badges tab. One-shot photos you can miss are flagged in red with the reason. Running totals show points toward Level 8 per chapter and overall. Your ticks are saved in your own browser, and "Clear all checkmarks" resets them.
-- **Backlog** (`backlog.html`): the games I still want to play, grouped into PS5, PS3 and Misc and sorted alphabetically, with a search filter. Anyone can look; only I can change it. For me, a green "+" at the end of each section opens a slot to type a game name and an optional note (Enter or clicking away adds it, Escape cancels). On each game, the pen reopens that slot to edit it, and the red "−" removes it.
+- **Backlog** (`backlog.html`): the games I still want to play, grouped into PS5, PS3 and Misc and sorted alphabetically, with a search filter. Anyone can look; only I can change it. For me, a green "+" at the end of each section opens a slot to type a game name and an optional note (Enter or clicking away adds it, Escape cancels). On each game, the pen reopens that slot to edit it, and the red "−" removes it. Each game is given a genre (RPG, Shooter, …) automatically when it's saved, shown in gold brackets after its note, like "Replaying on hard (RPG)", or just "(RPG)" with no note.
 - **Accounts** (every page): the "Sign in / Create account" button in the header opens a sign-in box on whichever page you're on. Anyone can make an account, which can view everything but not edit.
 
 ## How it's put together
@@ -31,6 +31,20 @@ The site is plain HTML, CSS and JavaScript, hosted on **GitHub Pages**. The shar
   - `home.js`: the floating hover effect on the home page cards.
 - `assets/`: images and icons.
 - `netlify/`, `netlify.toml`, `package.json`: the small backlog and account service that runs on Netlify.
+
+### Game genres (Google Gemini)
+
+The Netlify service asks Google's Gemini API "what genre is this game?" once per game, when it's added, and saves the answer with the game. Editing a game, even renaming it, keeps its genre. Setup:
+
+1. Get a free API key at https://aistudio.google.com/apikey.
+2. In Netlify: **Site configuration → Environment variables → Add a variable**, key `GEMINI_API_KEY`, value the key. Then **Deploys → Trigger deploy** so the service picks it up.
+
+The key stays on Netlify; it never goes in this repo or the pages.
+
+- **Model changes:** it uses Google's `gemini-flash-latest` alias (falling back to `gemini-flash-lite-latest`), which Google keeps pointed at their current model, so old models being retired doesn't break it. To pin a specific model instead, set a `GEMINI_MODEL` variable on Netlify.
+- **If Gemini fails** (no key, rate limit, Google outage, a changed API), games still save, just without a genre, and the error shows on the Stats page. Next time I open the backlog, games missing a genre are filled in.
+- **The genre list** is `GAME_CATEGORIES` in `netlify/functions/backlog.mjs`: broad genres only (Action, Action RPG, Adventure, Fighting, Horror, Platformer, Puzzle, Racing, RPG, Shooter, Simulation, Sports, Strategy, Other). Gemini has to pick one of them.
+- **Usage:** Google has no API that reports remaining quota, so the service counts its own Gemini calls. When I'm signed in, the Stats page shows today's requests and tokens, the last 30 days, and the last time a Google limit was hit. Days follow Pacific time, when Google resets daily limits. The real limits are on the [AI Studio rate limit page](https://aistudio.google.com/rate-limit). Optionally, set `GEMINI_DAILY_LIMIT` on Netlify to that daily request limit and the Stats page shows "used / limit".
 
 ### Adding a new page
 

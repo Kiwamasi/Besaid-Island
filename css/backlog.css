@@ -157,6 +157,23 @@
   white-space: nowrap;
 }
 
+/* A long note is cut off with "…" before the genre, so the genre always shows. */
+.game-entry-meta {
+  display: flex;
+  gap: 0.3em;
+}
+
+.game-note {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.game-category {
+  flex-shrink: 0;
+  color: var(--site-accent);
+}
+
 .game-entry-controls {
   display: flex;
   align-items: center;

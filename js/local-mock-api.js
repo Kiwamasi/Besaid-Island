@@ -22,6 +22,7 @@
   const SEEDED_KEY = 'besaid-mock-admin-seeded';
   const VIEWS_KEY = 'besaid-mock-views';
   const ERRORS_KEY = 'besaid-mock-errors';
+  const GEMINI_KEY = 'besaid-mock-gemini';
   const TOKEN_PREFIX = 'local-mock.';
   const ADMIN_USERNAME = 'kiwamari';
   const MAX_GAMES = 500;
@@ -83,6 +84,25 @@
       note: typeof game.note === 'string' ? game.note.trim().slice(0, 240) : '',
       createdAt: Number.isFinite(game.createdAt) ? game.createdAt : Date.now()
     };
+  }
+
+  // Stands in for Gemini: picks a genre from the name, so the same name always gets
+  // the same (made-up) genre. The real list is GAME_CATEGORIES in the Netlify function.
+  // Each pick counts as a call in the Stats page's Gemini usage.
+  const MOCK_CATEGORIES = ['Action', 'Action RPG', 'Adventure', 'Platformer', 'Puzzle', 'RPG', 'Shooter'];
+  function mockCategory(title) {
+    const usage = read(GEMINI_KEY, { days: {}, lastLimitedAt: null });
+    const today = mockGeminiDay();
+    usage.days[today] = { ok: 0, limited: 0, failed: 0, tokens: 0, ...usage.days[today] };
+    usage.days[today].ok++;
+    usage.days[today].tokens += 120;
+    localStorage.setItem(GEMINI_KEY, JSON.stringify(usage));
+    const sum = [...title].reduce((total, char) => total + char.charCodeAt(0), 0);
+    return MOCK_CATEGORIES[sum % MOCK_CATEGORIES.length];
+  }
+
+  function mockGeminiDay() {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' }).format(new Date());
   }
 
   function json(status, body) {
@@ -175,7 +195,15 @@
         return json(200, {
           views: read(VIEWS_KEY, { totals: {}, days: {} }),
           accounts: Object.keys(read(ACCOUNTS_KEY, {})).length + 1,
-          ...(user?.canEdit ? { errors: read(ERRORS_KEY, []) } : {})
+          ...(user?.canEdit ? {
+            errors: read(ERRORS_KEY, []),
+            gemini: {
+              ...read(GEMINI_KEY, { days: {}, lastLimitedAt: null }),
+              today: mockGeminiDay(),
+              configured: true,
+              dailyLimit: null
+            }
+          } : {})
         });
       }
       return json(200, { games, user });
@@ -190,11 +218,20 @@
       return json(200, { cleared: true });
     }
 
+    if (method === 'POST' && body?.action === 'categorize') {
+      const updated = games.filter(game => !game.category);
+      for (const game of updated) game.category = mockCategory(game.title);
+      localStorage.setItem(GAMES_KEY, JSON.stringify(games));
+      return json(200, { games: updated });
+    }
+
     if (method === 'POST') {
       const game = cleanGame(body.game);
       if (!game) return json(400, { error: 'Invalid game entry' });
       const index = games.findIndex(entry => entry.id === game.id);
       if (index === -1 && games.length >= MAX_GAMES) return json(413, { error: 'Backlog is full' });
+      const existing = games[index];
+      game.category = existing?.category || mockCategory(game.title);
       if (index === -1) games.push(game);
       else games[index] = game;
       localStorage.setItem(GAMES_KEY, JSON.stringify(games));

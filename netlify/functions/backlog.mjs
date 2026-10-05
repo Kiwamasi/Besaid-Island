@@ -14,6 +14,25 @@ const STATS_STORE_NAME = 'site-stats';
 const VIEWS_KEY = 'views';
 const ERRORS_KEY = 'errors';
 const MAX_ERRORS = 50;
+// Each game gets a genre from Google's Gemini API when it's saved (GEMINI_API_KEY in
+// Netlify's environment variables). The "-latest" aliases always point at Google's
+// current Flash models, so retired model versions never need changing here.
+// GEMINI_MODEL can name a specific model to try first.
+// Broad genres only; Gemini has to pick one of these.
+const GAME_CATEGORIES = [
+  'Action', 'Action RPG', 'Adventure', 'Fighting', 'Horror', 'Platformer', 'Puzzle',
+  'Racing', 'RPG', 'Shooter', 'Simulation', 'Sports', 'Strategy', 'Other'
+];
+// Google has no API for remaining quota, so Gemini calls are counted here for the
+// Stats page, per Pacific day because that's when Google resets daily limits.
+const GEMINI_USAGE_KEY = 'gemini';
+const GEMINI_USAGE_DAYS = 30;
+const pacificDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' });
+const GEMINI_MODELS = [process.env.GEMINI_MODEL, 'gemini-flash-latest', 'gemini-flash-lite-latest'].filter(Boolean);
+const GEMINI_TIMEOUT_MS = 6000;
+// Games without a genre (added before this, or while Gemini was down) are filled in
+// a few at a time when the admin opens the backlog, to stay inside Netlify's time limit.
+const BACKFILL_TIME_MS = 5000;
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://kiwamasi.github.io';
 const scrypt = promisify(scryptCallback);
 const HEADERS = {
@@ -126,6 +145,90 @@ function cleanGame(game) {
   };
 }
 
+// ---------- Genres ----------
+
+// Returns one of GAME_CATEGORIES, or '' if Gemini isn't set up or doesn't answer.
+// Failures are logged to the Stats page errors, and the game is saved without a
+// genre so the backfill can try again later.
+async function categorizeGame(game) {
+  try {
+    if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY is not set');
+    const signal = AbortSignal.timeout(GEMINI_TIMEOUT_MS);
+    const failures = [];
+    for (const model of GEMINI_MODELS) {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+        {
+          method: 'POST',
+          signal,
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': process.env.GEMINI_API_KEY },
+          body: JSON.stringify({
+            contents: [{
+              role: 'user',
+              parts: [{
+                text: `What genre is the video game "${game.title}"`
+                  + `${game.platform ? ` (${game.platform})` : ''}? Give its broad main genre, not a sub-genre.`
+                  + ' Answer "Other" if you don\'t recognise the game.'
+              }]
+            }],
+            generationConfig: {
+              responseMimeType: 'application/json',
+              responseSchema: {
+                type: 'OBJECT',
+                properties: { category: { type: 'STRING', enum: GAME_CATEGORIES } },
+                required: ['category']
+              }
+            }
+          })
+        }
+      );
+      if (!response.ok) {
+        // A retired model, a busy one or the free tier's rate limit: try the next model.
+        await recordGeminiCall(response.status === 429 ? 'limited' : 'failed');
+        failures.push(`${model}: HTTP ${response.status}`);
+        continue;
+      }
+      const result = await response.json();
+      await recordGeminiCall('ok', result.usageMetadata?.totalTokenCount);
+      const text = result.candidates?.[0]?.content?.parts?.map(part => part.text || '').join('') || '';
+      const category = (() => {
+        try { return JSON.parse(text).category; } catch { return null; }
+      })();
+      if (GAME_CATEGORIES.includes(category)) return category;
+      failures.push(`${model}: unexpected answer ${JSON.stringify(text.slice(0, 80))}`);
+    }
+    throw new Error(failures.join('; '));
+  } catch (error) {
+    if (error.name === 'TimeoutError') await recordGeminiCall('failed');
+    console.error('Gemini categorization failed', error);
+    await recordError({ message: `Gemini: ${error.message}`, source: 'netlify function (categorize)', page: '' })
+      .catch(() => {});
+    return '';
+  }
+}
+
+// usage = { days: { 'YYYY-MM-DD': { ok, limited, failed, tokens } }, lastLimitedAt }.
+// outcome: 'ok', 'limited' (HTTP 429, over a Google limit) or 'failed'.
+async function recordGeminiCall(outcome, tokens = 0) {
+  const today = pacificDay.format(new Date());
+  try {
+    await updateJson(statsStore(), GEMINI_USAGE_KEY, (usage) => {
+      const days = usage?.days || {};
+      const day = { ok: 0, limited: 0, failed: 0, tokens: 0, ...days[today] };
+      day[outcome]++;
+      day.tokens += Number.isFinite(tokens) ? tokens : 0;
+      days[today] = day;
+      const kept = Object.keys(days).sort().slice(-GEMINI_USAGE_DAYS);
+      return {
+        days: Object.fromEntries(kept.map(key => [key, days[key]])),
+        lastLimitedAt: outcome === 'limited' ? Date.now() : usage?.lastLimitedAt || null
+      };
+    });
+  } catch (error) {
+    console.error('Could not record Gemini usage', error);
+  }
+}
+
 // ---------- Site stats ----------
 
 function statsStore() {
@@ -187,16 +290,26 @@ async function recordError(report) {
 async function readStats(session) {
   const store = statsStore();
   const accounts = getStore({ name: ACCOUNT_STORE_NAME, consistency: 'strong' });
-  const [views, { blobs }, errors] = await Promise.all([
+  const [views, { blobs }, errors, gemini] = await Promise.all([
     store.get(VIEWS_KEY, { type: 'json' }),
     accounts.list({ prefix: ACCOUNT_KEY_PREFIX }),
-    session?.canEdit ? store.get(ERRORS_KEY, { type: 'json' }) : null
+    session?.canEdit ? store.get(ERRORS_KEY, { type: 'json' }) : null,
+    session?.canEdit ? store.get(GEMINI_USAGE_KEY, { type: 'json' }) : null
   ]);
   return {
     views: views || { totals: {}, days: {} },
     // The admin account lives in the environment, not in the store.
     accounts: blobs.length + 1,
-    ...(session?.canEdit ? { errors: errors || [] } : {})
+    ...(session?.canEdit ? {
+      errors: errors || [],
+      gemini: {
+        ...(gemini || { days: {}, lastLimitedAt: null }),
+        today: pacificDay.format(new Date()),
+        configured: Boolean(process.env.GEMINI_API_KEY),
+        // Optional: your daily request limit from AI Studio, to show usage against it.
+        dailyLimit: Number(process.env.GEMINI_DAILY_LIMIT) || null
+      }
+    } : {})
   };
 }
 
@@ -319,16 +432,42 @@ export default async (request, context) => {
       return respond(request, 200, { cleared: true });
     }
 
+    // Sent by js/backlog.js when the admin opens the backlog and some games have no genre.
+    if (request.method === 'POST' && body?.action === 'categorize') {
+      const started = Date.now();
+      const { blobs } = await store.list({ prefix: KEY_PREFIX });
+      const updated = [];
+      for (const { key } of blobs) {
+        if (Date.now() - started > BACKFILL_TIME_MS) break;
+        const saved = await store.getWithMetadata(key, { type: 'json' });
+        const game = saved?.data;
+        if (!game || game.category) continue;
+        const category = await categorizeGame(game);
+        if (!category) break; // Gemini is unavailable; try again next time.
+        const categorized = { ...game, category };
+        // Skip it if the game was edited or removed while Gemini was answering.
+        const result = await store.set(key, JSON.stringify(categorized), {
+          metadata: { title: game.title },
+          onlyIfMatch: saved.etag
+        });
+        if (result.modified) updated.push(categorized);
+      }
+      return respond(request, 200, { games: updated });
+    }
+
     if (request.method === 'POST') {
       const game = cleanGame(body.game);
       if (!game) return respond(request, 400, { error: 'Invalid game entry' });
 
       const key = `${KEY_PREFIX}${game.id}`;
-      const existing = await store.get(key);
+      const existing = await store.get(key, { type: 'json' });
       if (!existing) {
         const { blobs } = await store.list({ prefix: KEY_PREFIX });
         if (blobs.length >= MAX_GAMES) return respond(request, 413, { error: 'Backlog is full' });
       }
+      // The genre is always decided here, never by the page, and only once per game:
+      // once a game has one, edits (even renames) keep it.
+      game.category = existing?.category || await categorizeGame(game);
 
       await store.set(key, JSON.stringify(game), {
         metadata: { title: game.title }
