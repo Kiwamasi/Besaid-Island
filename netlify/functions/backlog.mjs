@@ -26,8 +26,8 @@ const GAME_CATEGORIES = [
 ];
 // Google has no API for remaining quota, so Gemini calls are counted here for the
 // Stats page, per Pacific day because that's when Google resets daily limits.
+// Kept forever, like page views: a day is only a few bytes.
 const GEMINI_USAGE_KEY = 'gemini';
-const GEMINI_USAGE_DAYS = 30;
 const pacificDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' });
 const GEMINI_MODELS = [process.env.GEMINI_MODEL, 'gemini-flash-latest', 'gemini-flash-lite-latest'].filter(Boolean);
 // How long to wait for Gemini to answer. Netlify stops a request after 60 seconds,
@@ -252,6 +252,8 @@ async function logGeminiError(message) {
 // usage = { days: { 'YYYY-MM-DD': { ok, limited, failed, tokens } }, lastLimitedAt,
 //           limited: { model: time of its last 429 } }.
 // outcome: 'ok', 'limited' (HTTP 429, over a Google limit) or 'failed'.
+// tokens is Google's own count from the response (usageMetadata.totalTokenCount):
+// the question, the answer and any thinking.
 async function recordGeminiCall(model, outcome, tokens = 0) {
   const today = pacificDay.format(new Date());
   try {
@@ -261,10 +263,9 @@ async function recordGeminiCall(model, outcome, tokens = 0) {
       day[outcome]++;
       day.tokens += Number.isFinite(tokens) ? tokens : 0;
       days[today] = day;
-      const kept = Object.keys(days).sort().slice(-GEMINI_USAGE_DAYS);
       const limited = outcome === 'limited' ? Date.now() : null;
       return {
-        days: Object.fromEntries(kept.map(key => [key, days[key]])),
+        days,
         lastLimitedAt: limited || usage?.lastLimitedAt || null,
         limited: { ...usage?.limited, ...(limited ? { [model]: limited } : {}) }
       };

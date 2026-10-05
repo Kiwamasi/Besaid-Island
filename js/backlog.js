@@ -3,6 +3,8 @@
 //
 // Each game's genre ("RPG", "Shooter"…) is picked by the server when it's saved,
 // and shown after its note in brackets: "Replaying on hard (RPG)", or just "(RPG)".
+// The genre buttons next to the search box show only that genre's games; the rest
+// pop out, and pop back in when the filter is cleared.
 //
 // Admins edit inline with a "slot": a game-shaped box with a name and a note field.
 // - The green "+" at the end of each section opens an empty slot to add a game.
@@ -14,6 +16,7 @@ const list = document.getElementById('gameList');
 const emptyState = document.getElementById('emptyState');
 const emptyTitle = document.getElementById('emptyTitle');
 const searchInput = document.getElementById('searchInput');
+const genreFilters = document.getElementById('genreFilters');
 const saveNote = document.getElementById('saveNote');
 const SYSTEM_ORDER = ['PS5', 'PS3', 'Misc'];
 // Games are listed alphabetically within each section. Numeric so "Final Fantasy 9"
@@ -36,7 +39,13 @@ const CATEGORY_IN_NOTE = /^(.*?)\s*\(([^()]{1,30})\)$/;
 function splitNote(text) {
   const trimmed = text.trim();
   const match = trimmed.match(CATEGORY_IN_NOTE);
-  return match ? { note: match[1], category: match[2].trim() } : { note: trimmed, category: '' };
+  return match ? { note: match[1], category: matchingCategory(match[2].trim()) } : { note: trimmed, category: '' };
+}
+
+// A typed genre takes the spelling of one already in the backlog ("rpg" -> "RPG"),
+// so it lands under the same genre button.
+function matchingCategory(category) {
+  return games.find(game => game.category && titleOrder.compare(game.category, category) === 0)?.category || category;
 }
 
 // The note as it's shown, with the genre after it: "Replaying on hard (RPG)".
@@ -50,6 +59,8 @@ let apiReady = false;
 let previousUser = account.user;
 // The open slot, if any: { mode: 'add' | 'edit', system, gameId, title, note, focus, closing }.
 let draft = null;
+// The genre button that's on, or '' for all games.
+let genreFilter = '';
 
 const POP_IN = [
   { opacity: 0, transform: 'scale(0.4)' },
@@ -128,15 +139,20 @@ function renderAndSlide(startPositions = {}) {
   }
 }
 
+function matchesGenre(game, genre = genreFilter) {
+  return !genre || game.category === genre;
+}
+
 function render({ fadeIn = true } = {}) {
   list.classList.toggle('no-fade-in', !fadeIn);
+  renderGenreFilters();
   const query = searchInput.value.trim().toLocaleLowerCase();
-  const visibleGames = games.filter(game =>
-    `${game.title} ${game.platform} ${game.category || ''} ${game.note}`.toLocaleLowerCase().includes(query)
+  const visibleGames = games.filter(game => matchesGenre(game)
+    && `${game.title} ${game.platform} ${game.category || ''} ${game.note}`.toLocaleLowerCase().includes(query)
   );
   // Admins always see every section (even empty ones) so they can add to it.
   const editing = canEdit() && apiReady;
-  const showSections = visibleGames.length > 0 || (editing && !query);
+  const showSections = visibleGames.length > 0 || (editing && !query && !genreFilter);
 
   const systemGroups = SYSTEM_ORDER.map((system, order) => ({
     system,
@@ -168,6 +184,50 @@ function render({ fadeIn = true } = {}) {
 
   // Keep typing where you were if the list is redrawn mid-draft.
   if (draft?.focus) list.querySelector(`.game-draft [name="${draft.focus}"]`)?.focus();
+}
+
+// ---------- Genre filter ----------
+
+// One button per genre in the backlog, with how many games have it, plus "All".
+function renderGenreFilters() {
+  const counts = new Map();
+  for (const game of games) {
+    if (game.category) counts.set(game.category, (counts.get(game.category) || 0) + 1);
+  }
+  // The last game of the chosen genre was removed or changed: show everything again.
+  if (genreFilter && !counts.has(genreFilter)) genreFilter = '';
+  const focused = document.activeElement?.closest?.('.genre-chip')?.dataset.genre;
+  const genres = [...counts.keys()].sort((first, second) => titleOrder.compare(first, second));
+
+  genreFilters.hidden = !genres.length;
+  genreFilters.replaceChildren(...['', ...genres].map(genre => {
+    const button = createElement('button', 'genre-chip', genre || 'All');
+    button.type = 'button';
+    button.dataset.genre = genre;
+    button.setAttribute('aria-pressed', String(genre === genreFilter));
+    if (genre) button.append(createElement('span', 'genre-chip-count', String(counts.get(genre))));
+    button.addEventListener('click', () => setGenreFilter(genre === genreFilter ? '' : genre));
+    return button;
+  }));
+  if (focused !== undefined) genreFilters.querySelector(`[data-genre="${CSS.escape(focused)}"]`)?.focus();
+}
+
+// Games outside the new genre pop out, the rest slide together, then games
+// that are now included pop in, like adding and removing a game.
+async function setGenreFilter(genre) {
+  if (genre === genreFilter) return;
+  if (draft && !draft.closing && !finishDraft()) return;
+  genreFilter = genre;
+  renderGenreFilters();
+  const leaving = games.filter(game => !matchesGenre(game, genre)).map(game => findSlot(game.id)).filter(Boolean);
+  await Promise.all(leaving.map(slot => pop(slot, POP_OUT, { duration: 240, easing: 'ease-in', fill: 'forwards' })));
+  // Another genre was picked while these popped out; that one takes over.
+  if (genreFilter !== genre) return;
+  const shown = new Set([...list.querySelectorAll('[data-id]')].map(slot => slot.dataset.id));
+  renderAndSlide();
+  for (const slot of list.querySelectorAll('.game-entry[data-id]')) {
+    if (!shown.has(slot.dataset.id)) pop(slot, POP_IN, { duration: 240, easing: 'ease-out' });
+  }
 }
 
 function systemForGame(game) {
@@ -234,6 +294,7 @@ function showCategory({ id, category }) {
   if (!game) return;
   const updated = { ...game, category };
   games = games.map(entry => entry === game ? updated : entry);
+  renderGenreFilters();
   const slot = findSlot(id);
   if (!slot || slot.classList.contains('game-draft')) return;
   const focused = [...slot.querySelectorAll('button')].find(button => button === document.activeElement);
@@ -516,7 +577,9 @@ function saveNewGame({ refocus }) {
   const draftPosition = list.querySelector('.game-draft')?.getBoundingClientRect();
   draft = null;
   games.push(game);
+  // Clear the filters so the new game (which has no genre yet) is in view.
   searchInput.value = '';
+  genreFilter = '';
   saveNote.textContent = 'Saving…';
   // The new game takes the draft's place; the "+" slides along after it.
   renderAndSlide(draftPosition ? { [game.id]: draftPosition } : {});

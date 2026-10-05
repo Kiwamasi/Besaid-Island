@@ -331,10 +331,16 @@ function renderGemini(gemini) {
   const days = gemini.days || {};
   const today = { ok: 0, limited: 0, failed: 0, tokens: 0, ...days[gemini.today] };
   const requests = day => day.ok + day.limited + day.failed;
-  const month = Object.values(days).reduce((sum, day) => ({
+  const totals = dayList => dayList.reduce((sum, day) => ({
     requests: sum.requests + requests(day),
     tokens: sum.tokens + day.tokens
   }), { requests: 0, tokens: 0 });
+  // Every day is kept, so "last 30 days" counts back from today (as dates, which
+  // sort correctly as text).
+  const monthStart = utcDay(Date.parse(gemini.today) - 29 * DAY_MS);
+  const month = totals(Object.entries(days).filter(([date]) => date >= monthStart).map(([, day]) => day));
+  const allTime = totals(Object.values(days));
+  const firstDay = Object.keys(days).sort()[0];
 
   const todayText = gemini.dailyLimit
     ? `${numberFormat.format(requests(today))} / ${numberFormat.format(gemini.dailyLimit)} requests`
@@ -350,6 +356,8 @@ function renderGemini(gemini) {
     ['Status', gemini.configured ? 'Key set' : 'GEMINI_API_KEY not set on Netlify'],
     ['Today', `${todayText} · ${breakdown}`],
     ['Last 30 days', `${numberFormat.format(month.requests)} requests · ${numberFormat.format(month.tokens)} tokens`],
+    ['All time', `${numberFormat.format(allTime.requests)} requests · ${numberFormat.format(allTime.tokens)} tokens`
+      + (firstDay ? ` · since ${new Date(`${firstDay}T12:00:00Z`).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}` : '')],
     ['Last over limit', gemini.lastLimitedAt ? timeElement(gemini.lastLimitedAt) : 'Never'],
     ['Daily reset', 'Midnight Pacific time']
   ];
