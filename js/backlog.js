@@ -26,6 +26,23 @@ function cleanTitle(title) {
   const trimmed = title.trim();
   return trimmed.charAt(0).toLocaleUpperCase() + trimmed.slice(1);
 }
+// Time between filling in one missing genre and asking for the next: at most 4 a
+// minute, under the free tier's per-minute request limit.
+const CATEGORIZE_SPACING_MS = 15000;
+
+// Brackets at the very end of a note set the game's genre by hand, without asking
+// Gemini: "Replaying on hard (RPG)" -> note "Replaying on hard", genre "RPG".
+const CATEGORY_IN_NOTE = /^(.*?)\s*\(([^()]{1,30})\)$/;
+function splitNote(text) {
+  const trimmed = text.trim();
+  const match = trimmed.match(CATEGORY_IN_NOTE);
+  return match ? { note: match[1], category: match[2].trim() } : { note: trimmed, category: '' };
+}
+
+// The note as it's shown, with the genre after it: "Replaying on hard (RPG)".
+function noteWithCategory(game) {
+  return [game.note, game.category && `(${game.category})`].filter(Boolean).join(' ');
+}
 const PEN_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M11.3 1.6a1.4 1.4 0 0 1 2 0l1.1 1.1a1.4 1.4 0 0 1 0 2L5.6 13.5 1.8 14.3l.8-3.8z" fill="currentColor"/></svg>';
 let games = [];
 let gamesLoaded = false;
@@ -192,18 +209,21 @@ async function loadGames() {
 }
 
 // Games saved before genres existed, or while the genre service was down, get one
-// now. The server does a few per request, so keep asking while it makes progress.
+// now: one game at a time, spaced out to stay under Google's per-minute limit.
+// Stops at the first one Google doesn't answer; the next visit tries again.
 async function fillMissingCategories() {
-  while (canEdit() && apiReady && games.some(game => !game.category)) {
+  for (;;) {
+    const game = canEdit() && apiReady && games.find(entry => !entry.category);
+    if (!game) return;
     let result;
     try {
-      result = await account.request('POST', { action: 'categorize' });
+      result = await account.request('POST', { action: 'categorize', id: game.id });
     } catch {
       return;
     }
-    const categorized = Array.isArray(result.games) ? result.games : [];
-    if (!categorized.length) return;
-    categorized.forEach(showCategory);
+    if (!result.game?.category) return;
+    showCategory(result.game);
+    await new Promise(resolve => setTimeout(resolve, CATEGORIZE_SPACING_MS));
   }
 }
 
@@ -229,7 +249,7 @@ function createGameRow(game) {
   item.dataset.id = game.id;
   const details = createElement('div', 'game-entry-details');
   // Title and note can be cut off with "…", so hovering shows them in full.
-  const noteLine = [game.note, game.category && `(${game.category})`].filter(Boolean).join(' ');
+  const noteLine = noteWithCategory(game);
   details.title = noteLine ? `${game.title}\n${noteLine}` : game.title;
   details.append(createElement('h2', '', game.title));
 
@@ -324,7 +344,7 @@ function createDraftSlot() {
   Object.assign(title, { name: 'title', value: draft.title, placeholder: 'Game name', maxLength: 100, autocomplete: 'off' });
   title.setAttribute('aria-label', editing ? 'Game name' : `New ${draft.system} game name`);
   const note = createElement('input', 'draft-note');
-  Object.assign(note, { name: 'note', value: draft.note, placeholder: 'Note (optional)', maxLength: 240, autocomplete: 'off' });
+  Object.assign(note, { name: 'note', value: draft.note, placeholder: 'Note (optional)', maxLength: 280, autocomplete: 'off' });
   note.setAttribute('aria-label', 'Note (optional)');
 
   for (const input of [title, note]) {
@@ -438,7 +458,8 @@ async function openEdit(gameId) {
     gameId,
     system: systemForGame(game),
     title: game.title,
-    note: game.note || '',
+    // The genre is shown in the note box too, so it can be changed there.
+    note: noteWithCategory(game),
     focus: 'title',
     closing: false
   };
@@ -488,7 +509,8 @@ function saveNewGame({ refocus }) {
     id: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`,
     title: cleanTitle(closing.title),
     platform: closing.system,
-    note: closing.note.trim(),
+    // A genre typed in brackets is kept; otherwise the server asks Gemini.
+    ...splitNote(closing.note),
     createdAt: Date.now()
   };
   const draftPosition = list.querySelector('.game-draft')?.getBoundingClientRect();
@@ -525,8 +547,16 @@ function saveEdit({ refocus }) {
     render();
     return;
   }
-  const updated = { ...original, title: cleanTitle(closing.title), note: closing.note.trim() };
-  const changed = updated.title !== original.title || updated.note !== (original.note || '');
+  // Deleting the brackets keeps the old genre; changing what's in them changes it.
+  const { note, category } = splitNote(closing.note);
+  const updated = {
+    ...original,
+    title: cleanTitle(closing.title),
+    note,
+    category: category || original.category || ''
+  };
+  const changed = updated.title !== original.title || updated.note !== (original.note || '')
+    || updated.category !== (original.category || '');
   if (changed) games = games.map(entry => entry.id === original.id ? updated : entry);
   renderAndSlide();
   // If the new name moved it to a new alphabetical spot it's sliding there; only

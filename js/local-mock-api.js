@@ -82,6 +82,7 @@
       title,
       platform: typeof game.platform === 'string' ? game.platform.trim().slice(0, 60) : '',
       note: typeof game.note === 'string' ? game.note.trim().slice(0, 240) : '',
+      category: typeof game.category === 'string' ? game.category.trim().slice(0, 30) : '',
       createdAt: Number.isFinite(game.createdAt) ? game.createdAt : Date.now()
     };
   }
@@ -89,7 +90,7 @@
   // Stands in for Gemini: picks a genre from the name, so the same name always gets
   // the same (made-up) genre. The real list is GAME_CATEGORIES in the Netlify function.
   // Each pick counts as a call in the Stats page's Gemini usage.
-  const MOCK_CATEGORIES = ['Action', 'Action RPG', 'Adventure', 'Platformer', 'Puzzle', 'RPG', 'Shooter'];
+  const MOCK_CATEGORIES = ['Action', 'Action RPG', 'Adventure', 'Platformer', 'Puzzle', 'RPG', 'Shooter', 'Souls-Like'];
   function mockCategory(title) {
     const usage = read(GEMINI_KEY, { days: {}, lastLimitedAt: null });
     const today = mockGeminiDay();
@@ -219,10 +220,13 @@
     }
 
     if (method === 'POST' && body?.action === 'categorize') {
-      const updated = games.filter(game => !game.category);
-      for (const game of updated) game.category = mockCategory(game.title);
-      localStorage.setItem(GAMES_KEY, JSON.stringify(games));
-      return json(200, { games: updated });
+      if (!validId(body.id)) return json(400, { error: 'Invalid game id' });
+      const game = games.find(entry => entry.id === body.id);
+      if (game && !game.category) {
+        game.category = mockCategory(game.title);
+        localStorage.setItem(GAMES_KEY, JSON.stringify(games));
+      }
+      return json(200, { game: game || null });
     }
 
     if (method === 'POST') {
@@ -231,7 +235,7 @@
       const index = games.findIndex(entry => entry.id === game.id);
       if (index === -1 && games.length >= MAX_GAMES) return json(413, { error: 'Backlog is full' });
       const existing = games[index];
-      game.category = existing?.category || mockCategory(game.title);
+      game.category = game.category || existing?.category || mockCategory(game.title);
       if (index === -1) games.push(game);
       else games[index] = game;
       localStorage.setItem(GAMES_KEY, JSON.stringify(games));
