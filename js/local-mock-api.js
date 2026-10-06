@@ -24,6 +24,8 @@
   const VIEWS_KEY = 'besaid-mock-views';
   const ERRORS_KEY = 'besaid-mock-errors';
   const GEMINI_KEY = 'besaid-mock-gemini';
+  // { username: { total: { requests, tokens }, days: { day: { requests, tokens } } } }.
+  const GEMINI_USERS_KEY = 'besaid-mock-gemini-users';
   // { username: { color } }: each account's settings, the admin's included.
   const SETTINGS_KEY = 'besaid-mock-settings';
   const TOKEN_PREFIX = 'local-mock.';
@@ -64,10 +66,15 @@
     return read(SETTINGS_KEY, {})[username] || null;
   }
 
+  function isPremium(username) {
+    return username === ADMIN_USERNAME || read(ACCOUNTS_KEY, {})[username]?.premium === true;
+  }
+
   function publicUser(username) {
     return {
       username: displayName(username),
       isAdmin: username === ADMIN_USERNAME,
+      isPremium: isPremium(username),
       color: cleanColor(settingsFor(username)?.color)
     };
   }
@@ -79,10 +86,17 @@
     const settings = settingsFor(username);
     const games = read(gamesKey(username), []);
     const bytes = value => (value ? new TextEncoder().encode(JSON.stringify(value)).length : 0);
+    const premium = isAdmin || account?.premium === true;
+    const gemini = read(GEMINI_USERS_KEY, {})[username];
+    const empty = { requests: 0, tokens: 0 };
     return {
       username: displayName(username),
       isAdmin,
-      isPremium: isAdmin || account?.premium === true,
+      isPremium: premium,
+      gemini: premium ? {
+        today: { ...empty, ...gemini?.days?.[mockGeminiDay()] },
+        total: { ...empty, ...gemini?.total }
+      } : null,
       games: games.length,
       storage: {
         games: games.reduce((total, game) => total + bytes(game), 0),
@@ -149,13 +163,19 @@
     const removed = REMOVED_GENRES.some(genre => genre.toLowerCase() === game.category?.toLowerCase());
     return removed ? { ...game, category: '', noGenre: true } : game;
   }
-  function mockCategory(title) {
+  function mockCategory(title, username) {
     const usage = read(GEMINI_KEY, { days: {}, lastLimitedAt: null });
     const today = mockGeminiDay();
     usage.days[today] = { ok: 0, limited: 0, failed: 0, tokens: 0, ...usage.days[today] };
     usage.days[today].ok++;
     usage.days[today].tokens += 120;
     localStorage.setItem(GEMINI_KEY, JSON.stringify(usage));
+    // And for the account it was for, shown on its profile.
+    const users = read(GEMINI_USERS_KEY, {});
+    const add = counts => ({ requests: (counts?.requests || 0) + 1, tokens: (counts?.tokens || 0) + 120 });
+    const mine = users[username] || {};
+    users[username] = { total: add(mine.total), days: { ...mine.days, [today]: add(mine.days?.[today]) } };
+    localStorage.setItem(GEMINI_USERS_KEY, JSON.stringify(users));
     const sum = [...title].reduce((total, char) => total + char.charCodeAt(0), 0);
     return MOCK_CATEGORIES[sum % MOCK_CATEGORIES.length];
   }
@@ -265,6 +285,14 @@
           } : {})
         });
       }
+      // Worked out from every backlog each time; the real API keeps a list instead.
+      if (url.searchParams.has('recent')) {
+        const recent = [ADMIN_USERNAME, ...Object.keys(read(ACCOUNTS_KEY, {}))]
+          .flatMap(owner => read(gamesKey(owner), []).map(game => ({ owner: displayName(owner), title: game.title, createdAt: game.createdAt })))
+          .sort((first, second) => second.createdAt - first.createdAt)
+          .slice(0, 20);
+        return json(200, { recent });
+      }
       if (url.searchParams.has('users')) {
         const usernames = Object.keys(read(ACCOUNTS_KEY, {}))
           .sort((first, second) => first.localeCompare(second, undefined, { numeric: true, sensitivity: 'base' }));
@@ -329,6 +357,9 @@
       delete settings[username];
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
       localStorage.removeItem(gamesKey(username));
+      const geminiUsers = read(GEMINI_USERS_KEY, {});
+      delete geminiUsers[username];
+      localStorage.setItem(GEMINI_USERS_KEY, JSON.stringify(geminiUsers));
       return json(200, { deleted: true });
     }
 
@@ -346,13 +377,13 @@
     const games = read(key, []);
 
     if (method === 'POST' && body?.action === 'categorize') {
-      if (!session.isAdmin) return json(403, { error: 'Automatic genres are only available to the admin' });
+      if (!isPremium(session.account)) return json(403, { error: 'Automatic genres need a premium account' });
       if (!validId(body.id)) return json(400, { error: 'Invalid game id' });
       const index = games.findIndex(entry => entry.id === body.id);
       if (index === -1) return json(200, { game: null });
       let game = withoutRemovedGenre(games[index]);
       if (!game.category && !game.noGenre) {
-        const category = mockCategory(game.title);
+        const category = mockCategory(game.title, session.account);
         game = category ? { ...game, category } : { ...game, noGenre: true };
         games[index] = game;
         localStorage.setItem(key, JSON.stringify(games));
@@ -371,8 +402,8 @@
         game.category = previous.category || '';
         if (previous.noGenre) game.noGenre = true;
       }
-      if (!game.category && !game.noGenre && session.isAdmin) {
-        const category = mockCategory(game.title);
+      if (!game.category && !game.noGenre && isPremium(session.account)) {
+        const category = mockCategory(game.title, session.account);
         if (category) game.category = category;
         else game.noGenre = true;
       }

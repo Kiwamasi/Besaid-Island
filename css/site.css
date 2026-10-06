@@ -28,7 +28,7 @@
   --site-header-height: 54px;
 
   /* One nav width for the whole site. Don't override per page. */
-  --site-nav-width: 935px;
+  --site-nav-width: 1068px;
   /* Room kept clear on each side of the nav for the account controls. */
   --site-account-slot: 14rem;
 }
@@ -71,7 +71,7 @@ html {
 .site-header .site-nav ul {
   display: flex;
   justify-content: space-between;
-  gap: clamp(1.07rem, 3.96vw, 3.3rem);
+  gap: clamp(1.28rem, 4.75vw, 3.96rem);
   flex-wrap: nowrap;
   margin: 0;
   padding: 0;

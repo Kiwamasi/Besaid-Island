@@ -4,7 +4,7 @@
 // Load after js/site-header.js, js/site-config.js and js/local-mock-api.js.
 // Pages that care who is signed in use window.siteAccount:
 //   siteAccount.status   'checking' | 'ready' | 'unavailable'
-//   siteAccount.user     { username, isAdmin, color } or null
+//   siteAccount.user     { username, isAdmin, isPremium, color } or null
 //   siteAccount.request(method, body)   call the API with the session token
 //   siteAccount.signOut()
 //   siteAccount.pageOwner()   whose backlog/profile the page shows (see below)

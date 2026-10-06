@@ -54,6 +54,10 @@
   padding: 0.55rem 0;
 }
 
+.profile-row[hidden] {
+  display: none;
+}
+
 .profile-row dt {
   color: var(--site-muted);
   font-size: 0.85rem;

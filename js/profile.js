@@ -3,7 +3,8 @@
 // visitors, the same way as the Backlog page.
 //
 // Shows whether the account is the admin and premium, how many games are in its
-// backlog, how much storage it uses, and its site colour. The owner can change the
+// backlog, how much storage it uses, its Gemini use (premium accounts only, as only
+// they use Gemini), and its site colour. The owner can change the
 // colour here: it becomes the trim colour on every page while they're signed in, and
 // is saved on the server (or in this browser, when testing locally).
 const account = window.siteAccount;
@@ -19,6 +20,7 @@ let profile = null;
 let loadVersion = 0;
 
 const sizeFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
+const numberFormat = new Intl.NumberFormat();
 function formatBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${sizeFormat.format(bytes / 1024)} KB`;
@@ -45,12 +47,18 @@ function showColor(color) {
 }
 
 function showDetails() {
-  const { isAdmin, isPremium, games, storage, color } = profile;
+  const { isAdmin, isPremium, games, storage, gemini, color } = profile;
   document.getElementById('profileAdmin').textContent = isAdmin ? 'True' : 'False';
   document.getElementById('profilePremium').textContent = isPremium ? 'True' : 'False';
   document.getElementById('profileGames').textContent = String(games);
-  document.getElementById('profileStorage').textContent =
-    `${formatBytes(storage.games + storage.account)} (games ${formatBytes(storage.games)} · account ${formatBytes(storage.account)})`;
+  document.getElementById('profileStorage').textContent = `${formatBytes(storage.games + storage.account)}`
+    + ` · games ${formatBytes(storage.games)} (${games}) · account ${formatBytes(storage.account)}`;
+  document.getElementById('profileGeminiRow').hidden = !gemini;
+  if (gemini) {
+    const usage = ({ tokens, requests }, when) => `${numberFormat.format(tokens)} tokens ${when}`
+      + ` (${numberFormat.format(requests)} ${requests === 1 ? 'request' : 'requests'})`;
+    document.getElementById('profileGemini').textContent = `${usage(gemini.today, 'today')} · ${usage(gemini.total, 'in total')}`;
+  }
   showColor(color);
   showColorControls();
   details.hidden = false;

@@ -395,15 +395,28 @@ async function loadBacklog() {
     const systems = Object.fromEntries(SYSTEM_ORDER.map(system => [system, 0]));
     for (const game of games) systems[systemForGame(game)]++;
     renderBars($('systemsList'), Object.entries(systems).filter(([, count]) => count), 'The backlog is empty.');
+  } catch (error) {
+    showEmpty($('systemsList'), `Backlog unavailable: ${error.message}`);
+  }
+}
 
-    const recent = [...games].sort((a, b) => b.createdAt - a.createdAt).slice(0, 5);
-    $('recentGames').replaceChildren(...recent.map(game => {
+// The newest games added to anyone's backlog, with whose backlog they're on.
+async function loadRecent() {
+  try {
+    const { recent = [] } = await account.request('GET', null, '?recent=1');
+    if (!recent.length) {
+      showEmpty($('recentGames'), 'No games yet.');
+      return;
+    }
+    $('recentGames').replaceChildren(...recent.slice(0, 5).map(game => {
       const item = el('li', 'mini-row');
-      item.append(el('span', 'mini-title', game.title), timeElement(game.createdAt));
+      const title = el('span', 'mini-title', game.title);
+      title.append(el('span', 'mini-owner', ` · ${game.owner}`));
+      item.append(title, timeElement(game.createdAt));
       return item;
     }));
   } catch (error) {
-    showEmpty($('systemsList'), `Backlog unavailable: ${error.message}`);
+    showEmpty($('recentGames'), `Recent additions unavailable: ${error.message}`);
   }
 }
 
@@ -484,3 +497,4 @@ loadConnection();
 loadGithub();
 loadSiteStats();
 loadBacklog();
+loadRecent();

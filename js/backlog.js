@@ -6,7 +6,7 @@
 // or Kiwamari's for visitors. Only the owner can change a backlog.
 //
 // Each game's genre ("RPG", "Shooter"…) is picked by the server when it's saved
-// (Gemini, for the admin only; anyone can type one in brackets), and shown after
+// (Gemini, for premium accounts only; anyone can type one in brackets), and shown after
 // its note in brackets: "Replaying on hard (RPG)", or just "(RPG)".
 // The genre buttons next to the search box show only that genre's games; the rest
 // pop out, and pop back in when the filter is cleared.
@@ -312,8 +312,8 @@ async function loadGamesFor(name) {
 // Gemini found no genre for (noGenre) aren't asked about again.
 async function fillMissingCategories() {
   for (;;) {
-    // Gemini genres are for the admin's own backlog only.
-    const game = canEdit() && account.user?.isAdmin && apiReady && games.find(entry => !entry.category && !entry.noGenre);
+    // Gemini genres are for premium accounts' own backlogs only.
+    const game = canEdit() && account.user?.isPremium && apiReady && games.find(entry => !entry.category && !entry.noGenre);
     if (!game) return;
     let result;
     try {
@@ -610,7 +610,7 @@ function saveNewGame({ refocus }) {
     id: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`,
     title: cleanTitle(closing.title),
     platform: closing.system,
-    // A genre typed in brackets is kept; otherwise the server asks Gemini (admin only).
+    // A genre typed in brackets is kept; otherwise the server asks Gemini (premium accounts only).
     ...splitNote(closing.note),
     createdAt: Date.now()
   };

@@ -11,8 +11,9 @@ const ACCOUNT_KEY_PREFIX = 'user-';
 const SETTINGS_KEY_PREFIX = 'settings-';
 const MAX_GAMES = 500; // per backlog
 const MAX_ACCOUNTS = 1000;
-// The one admin account (password in the environment). Only the admin's games get
-// genres from Gemini, and only the admin sees errors and Gemini usage on the Stats page.
+// The one admin account (password in the environment). Only the admin sees errors and
+// Gemini usage on the Stats page, and can change or delete other accounts. Games get
+// genres from Gemini only for premium accounts; the admin always is one.
 const ADMIN_USERNAME = 'kiwamari';
 const ADMIN_DISPLAY_NAME = 'Kiwamari';
 // Page views and client/server errors shown on the About (stats) page.
@@ -38,6 +39,13 @@ const REMOVED_GENRES = ['Other', 'Simulation'];
 // Stats page, per Pacific day because that's when Google resets daily limits.
 // Kept forever, like page views: a day is only a few bytes.
 const GEMINI_USAGE_KEY = 'gemini';
+// Each premium account's own Gemini use, for its profile page:
+// { total: { requests, tokens }, days: { 'YYYY-MM-DD': { requests, tokens } } }.
+const GEMINI_USER_KEY_PREFIX = 'gemini-user-';
+// The newest games added to anyone's backlog, for the Stats page:
+// [{ owner, id, title, createdAt }], newest first.
+const RECENT_KEY = 'recent';
+const MAX_RECENT = 20;
 const pacificDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' });
 const GEMINI_MODELS = [process.env.GEMINI_MODEL, 'gemini-flash-latest', 'gemini-flash-lite-latest'].filter(Boolean);
 // How long to wait for Gemini to answer. Netlify stops a request after 60 seconds,
@@ -141,6 +149,8 @@ async function deleteAccount(username) {
   const store = getStore({ name: STORE_NAME, consistency: 'strong' });
   const { blobs } = await store.list({ prefix: backlogPrefix(username) });
   await Promise.all(blobs.map(({ key }) => store.delete(key)));
+  await statsStore().delete(geminiUserKey(username));
+  await updateRecent(list => list.filter(entry => entry.owner !== username));
   const accounts = accountsStore();
   await accounts.delete(settingsKey(username));
   await accounts.delete(accountKey(username));
@@ -176,13 +186,29 @@ function cleanColor(color) {
   return typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color) ? color.toLowerCase() : null;
 }
 
+// Premium is "premium": true in the account's record, set by the admin on the Users
+// page. The admin always is premium. Only premium accounts get genres from Gemini.
+async function isPremium(username) {
+  if (username === ADMIN_USERNAME) return true;
+  const account = await accountsStore().get(accountKey(username), { type: 'json' });
+  return account?.premium === true;
+}
+
+function geminiUserKey(username) {
+  return `${GEMINI_USER_KEY_PREFIX}${accountKey(username).slice(ACCOUNT_KEY_PREFIX.length)}`;
+}
+
 // What the pages are told about the signed-in person. color is their own site colour
 // (null for the default), which the pages use as the trim colour.
 async function publicUser(username) {
-  const settings = await accountsStore().get(settingsKey(username), { type: 'json' });
+  const [settings, premium] = await Promise.all([
+    accountsStore().get(settingsKey(username), { type: 'json' }),
+    isPremium(username)
+  ]);
   return {
     username: displayName(username),
     isAdmin: username === ADMIN_USERNAME,
+    isPremium: premium,
     color: cleanColor(settings?.color)
   };
 }
@@ -191,17 +217,24 @@ async function publicUser(username) {
 async function readProfile(username) {
   const isAdmin = username === ADMIN_USERNAME;
   const accounts = accountsStore();
-  const [account, settings, games] = await Promise.all([
+  const [account, settings, games, gemini] = await Promise.all([
     isAdmin ? null : accounts.get(accountKey(username)),
     accounts.get(settingsKey(username)),
-    listGames(getStore({ name: STORE_NAME, consistency: 'strong' }), username)
+    listGames(getStore({ name: STORE_NAME, consistency: 'strong' }), username),
+    statsStore().get(geminiUserKey(username), { type: 'json' })
   ]);
   const bytes = text => (text ? Buffer.byteLength(text) : 0);
+  const premium = isAdmin || JSON.parse(account || '{}').premium === true;
+  const empty = { requests: 0, tokens: 0 };
   return {
     username: displayName(username),
     isAdmin,
-    // Set by hand for now: "premium": true in the account's record. The admin always is.
-    isPremium: isAdmin || JSON.parse(account || '{}').premium === true,
+    isPremium: premium,
+    // Only premium accounts use Gemini, so only they have usage to show.
+    gemini: premium ? {
+      today: { ...empty, ...gemini?.days?.[pacificDay.format(new Date())] },
+      total: { ...empty, ...gemini?.total }
+    } : null,
     games: games.length,
     // Bytes as stored: each game's record, and the account's own record plus its settings.
     storage: {
@@ -299,7 +332,7 @@ function withoutRemovedGenre(game) {
 // Only the game's name is sent to Google, never its note or anything else.
 // Failures are logged to the Stats page errors, and the game is saved without a
 // genre so the backfill can try again later.
-async function categorizeGame(game) {
+async function categorizeGame(game, username) {
   if (!process.env.GEMINI_API_KEY) {
     await logGeminiError('GEMINI_API_KEY is not set');
     return null;
@@ -329,12 +362,12 @@ async function categorizeGame(game) {
       }
       if (!response.ok) {
         const detail = (await response.json().catch(() => null))?.error?.message || '';
-        await recordGeminiCall(model, response.status === 429 ? 'limited' : 'failed');
+        await recordGeminiCall(model, response.status === 429 ? 'limited' : 'failed', 0, username);
         failures.push(`${model}: HTTP ${response.status}${detail ? ` (${detail.slice(0, 160)})` : ''}`);
         continue;
       }
       const result = await response.json();
-      await recordGeminiCall(model, 'ok', result.usageMetadata?.totalTokenCount);
+      await recordGeminiCall(model, 'ok', result.usageMetadata?.totalTokenCount, username);
       const text = result.candidates?.[0]?.content?.parts
         ?.filter(part => !part.thought).map(part => part.text || '').join('') || '';
       const category = (() => {
@@ -344,7 +377,7 @@ async function categorizeGame(game) {
       if (REMOVED_GENRES.includes(category)) return '';
       failures.push(`${model}: unexpected answer ${JSON.stringify(text.slice(0, 80))}`);
     } catch (error) {
-      await recordGeminiCall(model, 'failed');
+      await recordGeminiCall(model, 'failed', 0, username);
       failures.push(`${model}: ${error.name === 'TimeoutError' ? `no answer within ${Math.round(timeout / 1000)}s` : error.message}`);
     }
   }
@@ -401,9 +434,21 @@ async function logGeminiError(message) {
 //           limited: { model: time of its last 429 } }.
 // outcome: 'ok', 'limited' (HTTP 429, over a Google limit) or 'failed'.
 // tokens is Google's own count from the response (usageMetadata.totalTokenCount):
-// the question, the answer and any thinking.
-async function recordGeminiCall(model, outcome, tokens = 0) {
+// the question, the answer and any thinking. Every call is also counted for the
+// account it was made for, shown on its profile.
+async function recordGeminiCall(model, outcome, tokens = 0, username = null) {
   const today = pacificDay.format(new Date());
+  const used = Number.isFinite(tokens) ? tokens : 0;
+  if (username) {
+    try {
+      await updateJson(statsStore(), geminiUserKey(username), (usage) => {
+        const add = (counts) => ({ requests: (counts?.requests || 0) + 1, tokens: (counts?.tokens || 0) + used });
+        return { total: add(usage?.total), days: { ...usage?.days, [today]: add(usage?.days?.[today]) } };
+      });
+    } catch (error) {
+      console.error('Could not record Gemini usage for an account', error);
+    }
+  }
   try {
     await updateJson(statsStore(), GEMINI_USAGE_KEY, (usage) => {
       const days = usage?.days || {};
@@ -424,6 +469,43 @@ async function recordGeminiCall(model, outcome, tokens = 0) {
 }
 
 // ---------- Site stats ----------
+
+// Which account a game's key belongs to (see backlogPrefix).
+function ownerFromGameKey(key) {
+  if (key.startsWith(KEY_PREFIX)) return ADMIN_USERNAME;
+  const match = key.match(/^user\/([^/]+)\//);
+  return match ? usernameFromKey(`${ACCOUNT_KEY_PREFIX}${match[1]}`) : null;
+}
+
+// The Stats page's "Recently added", across everyone's backlogs. Kept up to date as
+// games are added, renamed and removed. The first time it's asked for, it's built
+// from every game there is.
+async function readRecent() {
+  const store = statsStore();
+  const saved = await store.get(RECENT_KEY, { type: 'json' });
+  if (Array.isArray(saved)) return saved;
+  const games = getStore({ name: STORE_NAME, consistency: 'strong' });
+  const { blobs } = await games.list();
+  const all = await Promise.all(blobs.map(async ({ key }) => {
+    const owner = ownerFromGameKey(key);
+    const game = owner && await games.get(key, { type: 'json' });
+    return game ? { owner, id: game.id, title: game.title, createdAt: game.createdAt } : null;
+  }));
+  const recent = all.filter(Boolean).sort((first, second) => second.createdAt - first.createdAt).slice(0, MAX_RECENT);
+  await store.setJSON(RECENT_KEY, recent, { onlyIfNew: true });
+  return recent;
+}
+
+// change(list) returns the new list. Best effort: a failure here never stops the
+// game itself being saved or removed.
+async function updateRecent(change) {
+  try {
+    await readRecent();
+    await updateJson(statsStore(), RECENT_KEY, (list) => change(Array.isArray(list) ? list : []).slice(0, MAX_RECENT));
+  } catch (error) {
+    console.error('Could not update recent additions', error);
+  }
+}
 
 function statsStore() {
   return getStore({ name: STATS_STORE_NAME, consistency: 'strong' });
@@ -601,6 +683,13 @@ export default async (request, context) => {
         });
       }
 
+      if (params.has('recent')) {
+        const recent = await readRecent();
+        return respond(request, 200, {
+          recent: recent.map(({ owner, title, createdAt }) => ({ owner: displayName(owner), title, createdAt }))
+        });
+      }
+
       if (params.has('users')) {
         return respond(request, 200, { users: await listUsers() });
       }
@@ -679,17 +768,19 @@ export default async (request, context) => {
     const store = getStore({ name: STORE_NAME, consistency: 'strong' });
     const prefix = backlogPrefix(session.username);
 
-    // Sent by js/backlog.js, one game at a time and spaced out, for the admin's games
-    // that Gemini hasn't answered for yet (added before genres existed, or while
+    // Sent by js/backlog.js, one game at a time and spaced out, for a premium account's
+    // games that Gemini hasn't answered for yet (added before genres existed, or while
     // Gemini was down).
     if (request.method === 'POST' && body?.action === 'categorize') {
-      if (!session.isAdmin) return respond(request, 403, { error: 'Automatic genres are only available to the admin' });
+      if (!await isPremium(session.username)) {
+        return respond(request, 403, { error: 'Automatic genres need a premium account' });
+      }
       if (!validId(body.id)) return respond(request, 400, { error: 'Invalid game id' });
       const key = `${prefix}${body.id}`;
       const saved = await store.getWithMetadata(key, { type: 'json' });
       const game = saved?.data && withoutRemovedGenre(saved.data);
       if (!game || game.category || game.noGenre) return respond(request, 200, { game: game || null });
-      const category = await categorizeGame(game);
+      const category = await categorizeGame(game, session.username);
       if (category === null) return respond(request, 200, { game }); // Gemini unavailable; try again next time.
       const categorized = category ? { ...game, category } : { ...game, noGenre: true };
       // Don't save over the game if it was edited or removed while Gemini was answering.
@@ -711,15 +802,15 @@ export default async (request, context) => {
         const { blobs } = await store.list({ prefix });
         if (blobs.length >= MAX_GAMES) return respond(request, 413, { error: 'Backlog is full' });
       }
-      // A genre typed by hand wins. Otherwise, for the admin only, Gemini is asked once
-      // per game: once a game has a genre (or Gemini found none), edits keep that.
+      // A genre typed by hand wins. Otherwise, for premium accounts only, Gemini is asked
+      // once per game: once a game has a genre (or Gemini found none), edits keep that.
       const previous = existing && withoutRemovedGenre(existing);
       if (!game.category && !game.noGenre && previous) {
         game.category = previous.category || '';
         if (previous.noGenre) game.noGenre = true;
       }
-      if (!game.category && !game.noGenre && session.isAdmin) {
-        const category = await categorizeGame(game);
+      if (!game.category && !game.noGenre && await isPremium(session.username)) {
+        const category = await categorizeGame(game, session.username);
         if (category) game.category = category;
         else if (category === '') game.noGenre = true;
       }
@@ -727,6 +818,13 @@ export default async (request, context) => {
       await store.set(key, JSON.stringify(game), {
         metadata: { title: game.title }
       });
+      // A new game goes to the top of the Stats page's "Recently added"; a renamed one
+      // keeps its place under its new name.
+      const owner = session.username;
+      const isEntry = entry => entry.owner === owner && entry.id === game.id;
+      await updateRecent(list => existing
+        ? list.map(entry => isEntry(entry) ? { ...entry, title: game.title } : entry)
+        : [{ owner, id: game.id, title: game.title, createdAt: game.createdAt }, ...list.filter(entry => !isEntry(entry))]);
       return respond(request, 201, { game });
     }
 
@@ -734,6 +832,7 @@ export default async (request, context) => {
       if (!validId(body.id)) return respond(request, 400, { error: 'Invalid game id' });
 
       await store.delete(`${prefix}${body.id}`);
+      await updateRecent(list => list.filter(entry => !(entry.owner === session.username && entry.id === body.id)));
       return respond(request, 200, { deleted: true });
     }
 

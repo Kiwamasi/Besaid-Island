@@ -149,8 +149,8 @@ async function openEdit(username) {
   }
   document.getElementById('editAdmin').textContent = editing.isAdmin ? 'True' : 'False';
   document.getElementById('editGames').textContent = String(editing.games);
-  document.getElementById('editStorage').textContent =
-    `${formatBytes(editing.storage.games + editing.storage.account)} (games ${formatBytes(editing.storage.games)} · account ${formatBytes(editing.storage.account)})`;
+  document.getElementById('editStorage').textContent = `${formatBytes(editing.storage.games + editing.storage.account)}`
+    + ` · games ${formatBytes(editing.storage.games)} (${editing.games}) · account ${formatBytes(editing.storage.account)}`;
   editPremium.checked = editing.isPremium;
   // The admin is always premium.
   editPremium.disabled = editing.isAdmin;

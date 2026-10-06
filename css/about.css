@@ -501,6 +501,10 @@
   white-space: nowrap;
 }
 
+.mini-owner {
+  color: var(--site-muted);
+}
+
 .mini-row time {
   flex: none;
   font-size: 0.75rem;
