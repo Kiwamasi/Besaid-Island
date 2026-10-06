@@ -3,7 +3,7 @@
 // js/site-header.js); picking yourself goes back to your own.
 //
 // The admin also gets a pen next to each account, which opens its settings (premium,
-// colour) to change, and a bin next to each other account, which asks first and then
+// colour) to change and can fill in missing genres on its backlog with Gemini, and a bin next to each other account, which asks first and then
 // deletes the account with its backlog and settings.
 const account = window.siteAccount;
 const usersList = document.getElementById('usersList');
@@ -22,6 +22,11 @@ const editColor = document.getElementById('editColor');
 const editColorDefault = document.getElementById('editColorDefault');
 const editError = document.getElementById('editError');
 const editSave = document.getElementById('editSave');
+const editGenres = document.getElementById('editGenres');
+const editFillGenres = document.getElementById('editFillGenres');
+// Time between filling in one missing genre and asking for the next: at most 4 a
+// minute, under the free tier's per-minute request limit.
+const CATEGORIZE_SPACING_MS = 15000;
 const PEN_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M11.3 1.6a1.4 1.4 0 0 1 2 0l1.1 1.1a1.4 1.4 0 0 1 0 2L5.6 13.5 1.8 14.3l.8-3.8z" fill="currentColor"/></svg>';
 const BIN_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 1.5h4a.5.5 0 0 1 .5.5v1H13a.75.75 0 0 1 0 1.5h-.6l-.7 9.1A1.5 1.5 0 0 1 10.2 15H5.8a1.5 1.5 0 0 1-1.5-1.4L3.6 4.5H3A.75.75 0 0 1 3 3h2.5V2a.5.5 0 0 1 .5-.5Zm-.9 3 .7 9h4.4l.7-9Zm1.65 1.25a.6.6 0 0 1 .6.6v5.3a.6.6 0 0 1-1.2 0v-5.3a.6.6 0 0 1 .6-.6Zm2.5 0a.6.6 0 0 1 .6.6v5.3a.6.6 0 0 1-1.2 0v-5.3a.6.6 0 0 1 .6-.6Z" fill="currentColor"/></svg>';
 let users = [];
@@ -31,6 +36,10 @@ let deleting = null;
 // so a slow load for an earlier one is ignored.
 let editing = null;
 let editVersion = 0;
+// Games on the open account's backlog with no genre, that Gemini hasn't answered for,
+// and whether they're being filled in right now.
+let missingGenres = [];
+let filling = false;
 
 function showCount() {
   usersNote.textContent = `${users.length} ${users.length === 1 ? 'account' : 'accounts'}`;
@@ -132,6 +141,8 @@ function defaultColor() {
 async function openEdit(username) {
   const version = ++editVersion;
   editing = null;
+  missingGenres = [];
+  filling = false;
   editTitle.textContent = `Edit ${username}`;
   editStatus.textContent = 'Loading…';
   editFields.hidden = true;
@@ -139,9 +150,14 @@ async function openEdit(username) {
   editSave.disabled = true;
   editDialog.showModal();
   try {
-    const { profile } = await account.request('GET', null, `?profile=${encodeURIComponent(username)}`);
+    const name = encodeURIComponent(username);
+    const [{ profile }, { games }] = await Promise.all([
+      account.request('GET', null, `?profile=${name}`),
+      account.request('GET', null, `?user=${name}`)
+    ]);
     if (version !== editVersion || !editDialog.open) return;
     editing = profile;
+    missingGenres = games.filter(game => !game.category && !game.noGenre);
   } catch (error) {
     if (version !== editVersion) return;
     editStatus.textContent = `Could not load ${username}: ${error.message}`;
@@ -156,10 +172,61 @@ async function openEdit(username) {
   editPremium.disabled = editing.isAdmin;
   editColor.value = editing.color || defaultColor();
   editColorDefault.checked = !editing.color;
+  showMissingGenres();
   editStatus.textContent = '';
   editFields.hidden = false;
   editSave.disabled = false;
 }
+
+// ---------- Filling in missing genres (admin only) ----------
+
+// Backlogs never get genres after the fact by themselves; this is the one place they
+// do. Only for premium accounts, as only they use Gemini, and it counts as their use.
+function showMissingGenres(progress) {
+  const count = missingGenres.length;
+  editGenres.textContent = progress || (count ? `${count} ${count === 1 ? 'game' : 'games'}` : 'None');
+  editFillGenres.hidden = !count || filling;
+  editFillGenres.disabled = !editing?.isPremium;
+  editFillGenres.title = editing?.isPremium ? '' : 'Needs a premium account (tick Premium User and save first)';
+}
+
+// One game at a time, spaced out. Stops if the box is closed, or at the first game
+// Gemini doesn't answer for (it can be tried again later).
+async function fillGenres() {
+  if (!editing?.isPremium || filling) return;
+  const version = editVersion;
+  const username = editing.username;
+  const total = missingGenres.length;
+  let done = 0;
+  filling = true;
+  editError.textContent = '';
+  showMissingGenres(`Filling in… 0 of ${total}`);
+  while (missingGenres.length && version === editVersion && editDialog.open) {
+    let result;
+    try {
+      result = await account.request('POST', { action: 'categorize', username, id: missingGenres[0].id });
+    } catch (error) {
+      result = { error };
+    }
+    if (version !== editVersion) return;
+    const unanswered = result.error || (result.game && !result.game.category && !result.game.noGenre);
+    if (unanswered) {
+      editError.textContent = result.error
+        ? `Could not fill in genres: ${result.error.message}`
+        : "Gemini didn't answer. Try again later.";
+      break;
+    }
+    missingGenres.shift();
+    done++;
+    showMissingGenres(`Filling in… ${done} of ${total}`);
+    if (missingGenres.length) await new Promise(resolve => setTimeout(resolve, CATEGORIZE_SPACING_MS));
+  }
+  if (version !== editVersion) return;
+  filling = false;
+  showMissingGenres(done && !missingGenres.length ? `Filled in ${done} ${done === 1 ? 'game' : 'games'}` : undefined);
+}
+
+editFillGenres.addEventListener('click', fillGenres);
 
 // Picking a colour turns "Default" off; turning "Default" on shows the default colour.
 editColor.addEventListener('input', () => { editColorDefault.checked = false; });

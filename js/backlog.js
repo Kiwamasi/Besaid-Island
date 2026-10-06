@@ -5,9 +5,10 @@
 // page shows the signed-in person's own backlog (and puts their name in the address),
 // or Kiwamari's for visitors. Only the owner can change a backlog.
 //
-// Each game's genre ("RPG", "Shooter"…) is picked by the server when it's saved
+// Each game's genre ("RPG", "Shooter"…) is picked by the server when it's first added
 // (Gemini, for premium accounts only; anyone can type one in brackets), and shown after
-// its note in brackets: "Replaying on hard (RPG)", or just "(RPG)".
+// its note in brackets: "Replaying on hard (RPG)", or just "(RPG)". Games without one
+// are never filled in from here; the admin can do that from the Users page.
 // The genre buttons next to the search box show only that genre's games; the rest
 // pop out, and pop back in when the filter is cleared.
 //
@@ -35,9 +36,6 @@ function cleanTitle(title) {
   const trimmed = title.trim();
   return trimmed.charAt(0).toLocaleUpperCase() + trimmed.slice(1);
 }
-// Time between filling in one missing genre and asking for the next: at most 4 a
-// minute, under the free tier's per-minute request limit.
-const CATEGORIZE_SPACING_MS = 15000;
 
 // Brackets at the very end of a note set the game's genre by hand, without asking
 // Gemini: "Replaying on hard (RPG)" -> note "Replaying on hard", genre "RPG".
@@ -303,28 +301,6 @@ async function loadGamesFor(name) {
   }
   showPageTitle();
   render();
-  fillMissingCategories();
-}
-
-// Games saved before genres existed, or while the genre service was down, get one
-// now: one game at a time, spaced out to stay under Google's per-minute limit.
-// Stops at the first one Google doesn't answer; the next visit tries again. Games
-// Gemini found no genre for (noGenre) aren't asked about again.
-async function fillMissingCategories() {
-  for (;;) {
-    // Gemini genres are for premium accounts' own backlogs only.
-    const game = canEdit() && account.user?.isPremium && apiReady && games.find(entry => !entry.category && !entry.noGenre);
-    if (!game) return;
-    let result;
-    try {
-      result = await account.request('POST', { action: 'categorize', id: game.id });
-    } catch {
-      return;
-    }
-    if (!result.game?.category && !result.game?.noGenre) return;
-    showCategory(result.game);
-    await new Promise(resolve => setTimeout(resolve, CATEGORIZE_SPACING_MS));
-  }
 }
 
 // Puts a genre from the server into the list without redrawing everything,

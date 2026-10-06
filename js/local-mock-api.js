@@ -4,13 +4,15 @@
 // with a backlog for each account, like the real site.
 // Signing out behaves like the real site; sign in as "kiwamari" with any password to
 // become admin again. Add ?mock=off to the URL to use the real API (?mock=on to undo).
+// Never on the live site, whatever the address or saved setting says: there the pages
+// always talk to the real API, so nobody can make the site look like they're the admin.
 (() => {
   const { protocol, hostname, search } = window.location;
   const isLocal = protocol === 'file:' || ['localhost', '127.0.0.1', '::1', '[::1]'].includes(hostname);
+  if (!isLocal) return;
   const override = new URLSearchParams(search).get('mock');
   if (override === 'off' || override === 'on') localStorage.setItem('besaid-mock', override);
-  const setting = localStorage.getItem('besaid-mock');
-  if (setting === 'off' || (!isLocal && setting !== 'on')) return;
+  if (localStorage.getItem('besaid-mock') === 'off') return;
 
   const apiUrl = String(window.SITE_API_URL || '').trim().replace(/\/$/, '');
   if (!apiUrl) return;
@@ -147,8 +149,14 @@
       platform: typeof game.platform === 'string' ? game.platform.trim().slice(0, 60) : '',
       note: typeof game.note === 'string' ? game.note.trim().slice(0, 240) : '',
       category: typeof game.category === 'string' ? game.category.trim().slice(0, 30) : '',
-      createdAt: Number.isFinite(game.createdAt) ? game.createdAt : Date.now()
+      createdAt: Date.now()
     };
+  }
+
+  // Mirrors allowedNewUsername in netlify/functions/backlog.mjs.
+  function allowedNewUsername(username) {
+    if (/\p{C}/u.test(username)) return false;
+    return username.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '') !== ADMIN_USERNAME;
   }
 
   // Stands in for Gemini: picks a genre from the name, so the same name always gets
@@ -246,6 +254,7 @@
         if (body.action === 'register') return json(409, { error: 'That username is reserved' });
         // Any password is accepted for the admin account locally.
       } else if (body.action === 'register') {
+        if (!allowedNewUsername(username)) return json(400, { error: 'That username isn\'t allowed. Pick another.' });
         if (accounts[username]) return json(409, { error: 'That username is already taken' });
         accounts[username] = { password };
         localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
@@ -274,15 +283,13 @@
         return json(200, {
           views: read(VIEWS_KEY, { totals: {}, days: {} }),
           accounts: Object.keys(read(ACCOUNTS_KEY, {})).length + 1,
-          ...(user?.isAdmin ? {
-            errors: read(ERRORS_KEY, []),
-            gemini: {
-              ...read(GEMINI_KEY, { days: {}, lastLimitedAt: null }),
-              today: mockGeminiDay(),
-              configured: true,
-              dailyLimit: null
-            }
-          } : {})
+          gemini: {
+            ...read(GEMINI_KEY, { days: {}, lastLimitedAt: null }),
+            today: mockGeminiDay(),
+            configured: true,
+            dailyLimit: null
+          },
+          ...(user?.isAdmin ? { errors: read(ERRORS_KEY, []) } : {})
         });
       }
       // Worked out from every backlog each time; the real API keeps a list instead.
@@ -377,16 +384,21 @@
     const games = read(key, []);
 
     if (method === 'POST' && body?.action === 'categorize') {
-      if (!isPremium(session.account)) return json(403, { error: 'Automatic genres need a premium account' });
+      if (!session.isAdmin) return json(403, { error: 'Only the admin can fill in genres' });
+      const owner = typeof body.username === 'string' ? findAccount(body.username) : session.account;
+      if (!owner) return json(404, { error: 'There is no account with that name' });
+      if (!isPremium(owner)) return json(403, { error: 'Automatic genres need a premium account' });
       if (!validId(body.id)) return json(400, { error: 'Invalid game id' });
-      const index = games.findIndex(entry => entry.id === body.id);
+      const ownerKey = gamesKey(owner);
+      const ownerGames = read(ownerKey, []);
+      const index = ownerGames.findIndex(entry => entry.id === body.id);
       if (index === -1) return json(200, { game: null });
-      let game = withoutRemovedGenre(games[index]);
+      let game = withoutRemovedGenre(ownerGames[index]);
       if (!game.category && !game.noGenre) {
-        const category = mockCategory(game.title, session.account);
+        const category = mockCategory(game.title, owner);
         game = category ? { ...game, category } : { ...game, noGenre: true };
-        games[index] = game;
-        localStorage.setItem(key, JSON.stringify(games));
+        ownerGames[index] = game;
+        localStorage.setItem(ownerKey, JSON.stringify(ownerGames));
       }
       return json(200, { game });
     }
@@ -398,11 +410,13 @@
       const index = games.findIndex(entry => entry.id === game.id);
       if (index === -1 && games.length >= MAX_GAMES) return json(413, { error: 'Backlog is full' });
       const previous = games[index] && withoutRemovedGenre(games[index]);
+      if (Number.isFinite(previous?.createdAt)) game.createdAt = previous.createdAt;
       if (!game.category && !game.noGenre && previous) {
         game.category = previous.category || '';
         if (previous.noGenre) game.noGenre = true;
       }
-      if (!game.category && !game.noGenre && isPremium(session.account)) {
+      // Only new games: an edit never asks Gemini, even for a game without a genre.
+      if (index === -1 && !game.category && !game.noGenre && isPremium(session.account)) {
         const category = mockCategory(game.title, session.account);
         if (category) game.category = category;
         else game.noGenre = true;

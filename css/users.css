@@ -72,8 +72,8 @@
 
 /* Premium: like the other tags, in gold. */
 .users-tag-premium {
-  border-color: rgba(212, 180, 106, 0.6);
-  color: #d4b46a;
+  border-color: color-mix(in srgb, var(--site-premium) 60%, transparent);
+  color: var(--site-premium);
 }
 
 /* ---------- Editing an account (admin only) ---------- */
@@ -171,6 +171,38 @@
   color: var(--site-muted);
   font-size: 0.82rem;
   cursor: pointer;
+}
+
+.users-edit-genres {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.users-edit-button {
+  border: 1px solid var(--site-line-strong);
+  border-radius: 4px;
+  padding: 0.2rem 0.65rem;
+  background: transparent;
+  color: var(--site-ink);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.users-edit-button:hover:not(:disabled) {
+  border-color: var(--site-accent);
+  color: var(--site-accent);
+}
+
+.users-edit-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.users-edit-button[hidden] {
+  display: none;
 }
 
 .users-edit-dialog .button-primary,

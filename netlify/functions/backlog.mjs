@@ -164,6 +164,15 @@ function validUsername(username) {
   return typeof username === 'string' && username.length > 0 && username.length <= 128;
 }
 
+// For new accounts only: no invisible or control characters (zero-width spaces and
+// the like, \p{C}), and nothing that reads as the admin's name once spacing,
+// punctuation and look-alike forms are taken out ("Kiwa_mari", "ｋｉｗａｍａｒｉ").
+function allowedNewUsername(username) {
+  if (/\p{C}/u.test(username)) return false;
+  const plain = username.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+  return plain !== ADMIN_USERNAME;
+}
+
 function accountKey(username) {
   if (/^[a-zA-Z0-9_-]{3,24}$/.test(username)) return `${ACCOUNT_KEY_PREFIX}${username}`;
   return `${ACCOUNT_KEY_PREFIX}~${Buffer.from(username, 'utf8').toString('base64url')}`;
@@ -315,7 +324,9 @@ function cleanGame(game) {
     note: typeof game.note === 'string' ? game.note.trim().slice(0, 240) : '',
     // Set by hand ("(RPG)" at the end of a note). Empty asks Gemini, for the admin only.
     category: typeof game.category === 'string' ? game.category.trim().slice(0, MAX_CATEGORY_LENGTH) : '',
-    createdAt: Number.isFinite(game.createdAt) ? game.createdAt : Date.now()
+    // Replaced by the server's own time when saved (see the POST handler), so nobody
+    // can date a game into the future to keep it at the top of "Recently added".
+    createdAt: Date.now()
   };
 }
 
@@ -570,22 +581,22 @@ async function readStats(session) {
     store.get(VIEWS_KEY, { type: 'json' }),
     accounts.list({ prefix: ACCOUNT_KEY_PREFIX }),
     session?.isAdmin ? store.get(ERRORS_KEY, { type: 'json' }) : null,
-    session?.isAdmin ? store.get(GEMINI_USAGE_KEY, { type: 'json' }) : null
+    store.get(GEMINI_USAGE_KEY, { type: 'json' })
   ]);
   return {
     views: views || { totals: {}, days: {} },
     // The admin account lives in the environment, not in the store.
     accounts: blobs.length + 1,
-    ...(session?.isAdmin ? {
-      errors: errors || [],
-      gemini: {
-        ...(gemini || { days: {}, lastLimitedAt: null }),
-        today: pacificDay.format(new Date()),
-        configured: Boolean(process.env.GEMINI_API_KEY),
-        // Optional: your daily request limit from AI Studio, to show usage against it.
-        dailyLimit: Number(process.env.GEMINI_DAILY_LIMIT) || null
-      }
-    } : {})
+    // Site-wide Gemini use, shown to everyone.
+    gemini: {
+      ...(gemini || { days: {}, lastLimitedAt: null }),
+      today: pacificDay.format(new Date()),
+      configured: Boolean(process.env.GEMINI_API_KEY),
+      // Optional: your daily request limit from AI Studio, to show usage against it.
+      dailyLimit: Number(process.env.GEMINI_DAILY_LIMIT) || null
+    },
+    // Errors can include details about the site's setup, so only the admin gets them.
+    ...(session?.isAdmin ? { errors: errors || [] } : {})
   };
 }
 
@@ -634,6 +645,9 @@ export default async (request, context) => {
         const key = accountKey(username);
 
         if (body.action === 'register') {
+          if (!allowedNewUsername(username)) {
+            return respond(request, 400, { error: 'That username isn\'t allowed. Pick another.' });
+          }
           const { blobs } = await accounts.list({ prefix: ACCOUNT_KEY_PREFIX });
           if (blobs.length >= MAX_ACCOUNTS) {
             return respond(request, 429, { error: 'Account registration is currently full' });
@@ -768,19 +782,24 @@ export default async (request, context) => {
     const store = getStore({ name: STORE_NAME, consistency: 'strong' });
     const prefix = backlogPrefix(session.username);
 
-    // Sent by js/backlog.js, one game at a time and spaced out, for a premium account's
-    // games that Gemini hasn't answered for yet (added before genres existed, or while
-    // Gemini was down).
+    // Backlogs are never given genres after the fact on their own. This is sent by the
+    // admin from the Users page, one game at a time and spaced out, to fill in genres
+    // for games Gemini hasn't answered for yet (added before genres existed, or while
+    // Gemini was down) on a premium account's backlog. The Gemini use counts for that
+    // account.
     if (request.method === 'POST' && body?.action === 'categorize') {
-      if (!await isPremium(session.username)) {
+      if (!session.isAdmin) return respond(request, 403, { error: 'Only the admin can fill in genres' });
+      const owner = typeof body.username === 'string' ? await findAccount(body.username) : session.username;
+      if (!owner) return respond(request, 404, { error: 'There is no account with that name' });
+      if (!await isPremium(owner)) {
         return respond(request, 403, { error: 'Automatic genres need a premium account' });
       }
       if (!validId(body.id)) return respond(request, 400, { error: 'Invalid game id' });
-      const key = `${prefix}${body.id}`;
+      const key = `${backlogPrefix(owner)}${body.id}`;
       const saved = await store.getWithMetadata(key, { type: 'json' });
       const game = saved?.data && withoutRemovedGenre(saved.data);
       if (!game || game.category || game.noGenre) return respond(request, 200, { game: game || null });
-      const category = await categorizeGame(game, session.username);
+      const category = await categorizeGame(game, owner);
       if (category === null) return respond(request, 200, { game }); // Gemini unavailable; try again next time.
       const categorized = category ? { ...game, category } : { ...game, noGenre: true };
       // Don't save over the game if it was edited or removed while Gemini was answering.
@@ -805,11 +824,14 @@ export default async (request, context) => {
       // A genre typed by hand wins. Otherwise, for premium accounts only, Gemini is asked
       // once per game: once a game has a genre (or Gemini found none), edits keep that.
       const previous = existing && withoutRemovedGenre(existing);
+      // An edit keeps the time the game was first added.
+      if (Number.isFinite(previous?.createdAt)) game.createdAt = previous.createdAt;
       if (!game.category && !game.noGenre && previous) {
         game.category = previous.category || '';
         if (previous.noGenre) game.noGenre = true;
       }
-      if (!game.category && !game.noGenre && await isPremium(session.username)) {
+      // Only new games: an edit never asks Gemini, even for a game without a genre.
+      if (!existing && !game.category && !game.noGenre && await isPremium(session.username)) {
         const category = await categorizeGame(game, session.username);
         if (category) game.category = category;
         else if (category === '') game.noGenre = true;

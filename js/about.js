@@ -4,8 +4,8 @@
 //   of 60 requests an hour per visitor.
 // - Page views, accounts and errors come from the site API (netlify/functions/backlog.mjs),
 //   counted by js/site-telemetry.js. Errors are only sent to the admin.
-// - Gemini usage (admin only) is the site API's own count of its calls to Google for
-//   game genres. Google has no API for remaining quota; AI Studio shows the real limits.
+// - Gemini usage (shown to everyone) is the site API's own count of its calls to Google
+//   for game genres. Google has no API for remaining quota; AI Studio shows the real limits.
 const account = window.siteAccount;
 const REPO = 'Kiwamasi/Besaid-Island';
 const GITHUB_API = `https://api.github.com/repos/${REPO}`;
@@ -487,7 +487,7 @@ $('clearErrors').addEventListener('click', async () => {
   }
 });
 
-// Errors and Gemini usage are admin-only, so reload when someone signs in or out as admin.
+// Errors are admin-only, so reload when someone signs in or out as admin.
 document.addEventListener('site-account-change', () => {
   if (account.status === 'ready' && Boolean(account.user?.isAdmin) !== statsLoadedAsAdmin) loadSiteStats();
 });

@@ -23,6 +23,8 @@
   --site-focus: color-mix(in srgb, var(--trim-color) 85%, #fff);
   --site-nav-link: #fff;
   --site-nav-hover: var(--trim-color);
+  /* Premium accounts are marked in gold (header and Users page). */
+  --site-premium: #d4b46a;
 
   /* Header height, also used by css/base.css to size the page below it. */
   --site-header-height: 54px;
@@ -30,7 +32,7 @@
   /* One nav width for the whole site. Don't override per page. */
   --site-nav-width: 1068px;
   /* Room kept clear on each side of the nav for the account controls. */
-  --site-account-slot: 14rem;
+  --site-account-slot: 18rem;
 }
 
 /* Reserve scrollbar space on every page, so pages with and without a scrollbar
@@ -101,14 +103,25 @@ html {
   display: flex;
   align-items: center;
   gap: 0.25rem;
+  /* Never wider than the room kept clear for it, so it can't run into the nav. */
+  max-width: var(--site-account-slot);
+  min-width: 0;
   white-space: nowrap;
 }
 
 .account-name {
+  /* A long username is cut off with "…" rather than pushing into the nav. */
+  overflow: hidden;
+  min-width: 0;
   color: var(--site-accent);
   font-family: 'IBM Plex Sans', Arial, sans-serif;
   font-size: 0.82rem;
+  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.account-premium {
+  color: var(--site-premium);
 }
 
 .site-account-signin,
@@ -345,6 +358,48 @@ html {
 .auth-mode.is-active {
   background: rgba(241, 240, 235, 0.09);
   color: var(--site-ink);
+}
+
+/* Password box with the show/hide eye inside it, on the right. */
+.password-field {
+  position: relative;
+  display: block;
+}
+
+.form-field .password-field input {
+  padding-right: 2.4rem;
+}
+
+/* Edge adds its own eye to password boxes; ours replaces it. */
+.password-field input::-ms-reveal {
+  display: none;
+}
+
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 0.3rem;
+  display: grid;
+  place-items: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border: 0;
+  border-radius: 3px;
+  padding: 0;
+  background: transparent;
+  color: var(--site-muted);
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.password-toggle:hover,
+.password-toggle[aria-pressed="true"] {
+  color: var(--site-accent);
+}
+
+.password-toggle svg {
+  width: 1rem;
+  height: 1rem;
 }
 
 .login-message {

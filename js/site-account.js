@@ -141,7 +141,19 @@
     accountName.hidden = status === 'ready' && !user;
     if (status === 'checking') accountName.textContent = 'Checking account…';
     else if (status === 'unavailable') accountName.textContent = 'Account status unavailable';
-    else accountName.textContent = user ? `${user.username}${user.isAdmin ? ' | Admin' : ''} |` : '';
+    else if (!user) accountName.textContent = '';
+    else {
+      // "Kiwamari | Admin | Premium |", with Premium in gold like on the Users page.
+      const premium = document.createElement('span');
+      premium.className = 'account-premium';
+      premium.textContent = 'Premium';
+      accountName.replaceChildren(
+        user.username,
+        ...(user.isAdmin ? [' | Admin'] : []),
+        ...(user.isPremium ? [' | ', premium] : []),
+        ' |'
+      );
+    }
   }
 
   async function checkSession() {
@@ -198,7 +210,10 @@
       </label>
       <label class="form-field">
         <span>Password</span>
-        <input name="password" type="password" required autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false">
+        <span class="password-field">
+          <input name="password" type="password" required autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false">
+          <button class="password-toggle" type="button" aria-label="Show password" aria-pressed="false" title="Show password"></button>
+        </span>
       </label>
       <button class="button-primary login-submit" type="submit">Sign in</button>
       <p class="login-message" role="status"></p>
@@ -211,7 +226,26 @@
   const fields = dialog.querySelectorAll('.form-field');
   const submitButton = dialog.querySelector('.login-submit');
   const message = dialog.querySelector('.login-message');
+  const passwordToggle = dialog.querySelector('.password-toggle');
   let authMode = 'login';
+
+  // The eye next to the password shows what's been typed; it's hidden again each time
+  // the box changes mode or opens.
+  const EYE_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3C4.4 3 1.6 5.4.5 8c1.1 2.6 3.9 5 7.5 5s6.4-2.4 7.5-5C14.4 5.4 11.6 3 8 3Zm0 8.3A3.3 3.3 0 1 1 8 4.7a3.3 3.3 0 0 1 0 6.6ZM8 6.3a1.7 1.7 0 1 0 0 3.4 1.7 1.7 0 0 0 0-3.4Z" fill="currentColor"/></svg>';
+  const EYE_OFF_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.3 1.2 1.2 2.3l2.1 2.1A8.6 8.6 0 0 0 .5 8c1.1 2.6 3.9 5 7.5 5 1.3 0 2.5-.3 3.6-.9l2.1 2.1 1.1-1.1ZM8 11.3A3.3 3.3 0 0 1 4.7 8c0-.6.2-1.2.4-1.7l1.3 1.3a1.7 1.7 0 0 0 2 2l1.3 1.3c-.5.3-1.1.4-1.7.4ZM8 3c3.6 0 6.4 2.4 7.5 5a8.8 8.8 0 0 1-2.2 3.1l-2.1-2.1c.1-.3.1-.7.1-1A3.3 3.3 0 0 0 8 4.7c-.3 0-.7 0-1 .1L5.6 3.4C6.4 3.1 7.2 3 8 3Z" fill="currentColor"/></svg>';
+  function showPassword(visible) {
+    form.elements.password.type = visible ? 'text' : 'password';
+    passwordToggle.innerHTML = visible ? EYE_OFF_ICON : EYE_ICON;
+    const label = visible ? 'Hide password' : 'Show password';
+    passwordToggle.setAttribute('aria-label', label);
+    passwordToggle.title = label;
+    passwordToggle.setAttribute('aria-pressed', String(visible));
+  }
+  passwordToggle.addEventListener('click', () => {
+    showPassword(form.elements.password.type === 'password');
+    form.elements.password.focus();
+  });
+  showPassword(false);
 
   function showMessage(text, state = '') {
     message.textContent = text;
@@ -231,7 +265,10 @@
     submitButton.type = 'submit';
     submitButton.textContent = mode === 'login' ? 'Sign in' : 'Create account';
     form.elements.password.autocomplete = mode === 'login' ? 'current-password' : 'new-password';
-    showMessage(mode === 'register' ? 'Your account gets its own backlog and profile, with links you can share.' : '');
+    showPassword(false);
+    showMessage(mode === 'register'
+      ? 'Your account gets its own backlog and profile, with links you can share.'
+      : 'Enter your username and password to sign in.');
   }
 
   function openDialog() {
