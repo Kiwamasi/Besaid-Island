@@ -4,11 +4,12 @@
 // Load after js/site-header.js, js/site-config.js and js/local-mock-api.js.
 // Pages that care who is signed in use window.siteAccount:
 //   siteAccount.status   'checking' | 'ready' | 'unavailable'
-//   siteAccount.user     { username, isAdmin } or null
+//   siteAccount.user     { username, isAdmin, color } or null
 //   siteAccount.request(method, body)   call the API with the session token
 //   siteAccount.signOut()
 //   siteAccount.pageOwner()   whose backlog/profile the page shows (see below)
 //   siteAccount.showOwnerInAddress(name), siteAccount.isSameAccount(a, b)
+//   siteAccount.saveColor(color), siteAccount.applyColor(color)   the person's site colour
 // and listen for the 'site-account-change' event on document.
 (() => {
   const SESSION_KEY = 'besaid-backlog-session';
@@ -106,9 +107,24 @@
     }
   }
 
+  // The signed-in person's own colour (from their profile) replaces the site's trim
+  // colour on every page; everyone else sees the default from css/site.css.
+  function applyColor(color = user?.color) {
+    if (color) document.documentElement.style.setProperty('--trim-color', color);
+    else document.documentElement.style.removeProperty('--trim-color');
+  }
+
+  // Saves the signed-in person's colour ('' for the default) and shows it everywhere.
+  async function saveColor(color) {
+    const result = await request('POST', { action: 'set-color', color });
+    setState('ready', { ...user, color: result.color });
+    return result.color;
+  }
+
   function setState(nextStatus, nextUser) {
     status = nextStatus;
     user = nextUser;
+    applyColor();
     if (status === 'ready') {
       if (token && user) localStorage.setItem(USER_KEY, JSON.stringify({ token, user }));
       else localStorage.removeItem(USER_KEY);
@@ -310,7 +326,9 @@
     signOut,
     pageOwner,
     showOwnerInAddress,
-    isSameAccount
+    isSameAccount,
+    applyColor,
+    saveColor
   };
 
   checkSession();

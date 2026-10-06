@@ -6,6 +6,9 @@ const STORE_NAME = 'public-game-backlog';
 const ACCOUNT_STORE_NAME = 'backlog-accounts';
 const KEY_PREFIX = 'game-';
 const ACCOUNT_KEY_PREFIX = 'user-';
+// Each account's settings (just its site colour so far), in the accounts store next to
+// the account. The admin has one too, though its account lives in the environment.
+const SETTINGS_KEY_PREFIX = 'settings-';
 const MAX_GAMES = 500; // per backlog
 const MAX_ACCOUNTS = 1000;
 // The one admin account (password in the environment). Only the admin's games get
@@ -134,9 +137,49 @@ function displayName(username) {
   return username === ADMIN_USERNAME ? ADMIN_DISPLAY_NAME : username;
 }
 
-// What the pages are told about the signed-in person.
-function publicUser(username) {
-  return { username: displayName(username), isAdmin: username === ADMIN_USERNAME };
+function settingsKey(username) {
+  return `${SETTINGS_KEY_PREFIX}${accountKey(username).slice(ACCOUNT_KEY_PREFIX.length)}`;
+}
+
+// A site colour as "#rrggbb", or null if it isn't one.
+function cleanColor(color) {
+  return typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color) ? color.toLowerCase() : null;
+}
+
+// What the pages are told about the signed-in person. color is their own site colour
+// (null for the default), which the pages use as the trim colour.
+async function publicUser(username) {
+  const settings = await accountsStore().get(settingsKey(username), { type: 'json' });
+  return {
+    username: displayName(username),
+    isAdmin: username === ADMIN_USERNAME,
+    color: cleanColor(settings?.color)
+  };
+}
+
+// Everything the profile page shows. Anyone can see anyone's profile.
+async function readProfile(username) {
+  const isAdmin = username === ADMIN_USERNAME;
+  const accounts = accountsStore();
+  const [account, settings, games] = await Promise.all([
+    isAdmin ? null : accounts.get(accountKey(username)),
+    accounts.get(settingsKey(username)),
+    listGames(getStore({ name: STORE_NAME, consistency: 'strong' }), username)
+  ]);
+  const bytes = text => (text ? Buffer.byteLength(text) : 0);
+  return {
+    username: displayName(username),
+    isAdmin,
+    // Set by hand for now: "premium": true in the account's record. The admin always is.
+    isPremium: isAdmin || JSON.parse(account || '{}').premium === true,
+    games: games.length,
+    // Bytes as stored: each game's record, and the account's own record plus its settings.
+    storage: {
+      games: games.reduce((total, game) => total + bytes(JSON.stringify(game)), 0),
+      account: bytes(account) + bytes(settings)
+    },
+    color: cleanColor(JSON.parse(settings || '{}').color)
+  };
 }
 
 // Every account has its own backlog. The admin's games keep the keys they had before
@@ -474,14 +517,14 @@ export default async (request, context) => {
 
       return respond(request, 200, {
         token: createSession(accountName),
-        user: publicUser(accountName)
+        user: await publicUser(accountName)
       });
     }
 
     if (request.method === 'GET') {
       const params = new URL(request.url).searchParams;
       const session = getSession(request);
-      const user = session ? publicUser(session.username) : null;
+      const user = session ? await publicUser(session.username) : null;
       if (params.has('session')) {
         return respond(request, 200, { user });
       }
@@ -502,11 +545,11 @@ export default async (request, context) => {
         });
       }
 
-      // ?profile=name: whether that account exists, and its name as shown.
+      // ?profile=name: that account's profile page details.
       if (params.has('profile')) {
         const username = await findAccount(params.get('profile'));
         if (!username) return respond(request, 404, { error: 'There is no account with that name' });
-        return respond(request, 200, { profile: { username: displayName(username) } });
+        return respond(request, 200, { profile: await readProfile(username) });
       }
 
       // ?user=name lists that person's backlog. Without it, the admin's, which is
@@ -529,6 +572,14 @@ export default async (request, context) => {
       if (!session.isAdmin) return respond(request, 403, { error: 'Only the admin can clear errors' });
       await statsStore().setJSON(ERRORS_KEY, []);
       return respond(request, 200, { cleared: true });
+    }
+
+    // The signed-in person's own site colour; an empty colour goes back to the default.
+    if (request.method === 'POST' && body?.action === 'set-color') {
+      const color = body.color === '' ? null : cleanColor(body.color);
+      if (color === null && body.color !== '') return respond(request, 400, { error: 'Invalid colour' });
+      await updateJson(accountsStore(), settingsKey(session.username), settings => ({ ...settings, color }));
+      return respond(request, 200, { color });
     }
 
     // Everything below changes the signed-in person's own backlog, never anyone else's.
@@ -597,7 +648,7 @@ export default async (request, context) => {
         if (await verifyPassword(pendingRegistration.password, savedAccount)) {
           return respond(request, 200, {
             token: createSession(pendingRegistration.username),
-            user: publicUser(pendingRegistration.username)
+            user: await publicUser(pendingRegistration.username)
           });
         }
       } catch (recoveryError) {

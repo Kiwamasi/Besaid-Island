@@ -24,6 +24,8 @@
   const VIEWS_KEY = 'besaid-mock-views';
   const ERRORS_KEY = 'besaid-mock-errors';
   const GEMINI_KEY = 'besaid-mock-gemini';
+  // { username: { color } }: each account's settings, the admin's included.
+  const SETTINGS_KEY = 'besaid-mock-settings';
   const TOKEN_PREFIX = 'local-mock.';
   const ADMIN_USERNAME = 'kiwamari';
   const MAX_GAMES = 500; // per backlog
@@ -54,8 +56,41 @@
     return username === ADMIN_USERNAME ? 'Kiwamari' : username;
   }
 
+  function cleanColor(color) {
+    return typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color) ? color.toLowerCase() : null;
+  }
+
+  function settingsFor(username) {
+    return read(SETTINGS_KEY, {})[username] || null;
+  }
+
   function publicUser(username) {
-    return { username: displayName(username), isAdmin: username === ADMIN_USERNAME };
+    return {
+      username: displayName(username),
+      isAdmin: username === ADMIN_USERNAME,
+      color: cleanColor(settingsFor(username)?.color)
+    };
+  }
+
+  // Mirrors readProfile in netlify/functions/backlog.mjs. To try a premium account
+  // locally, add "premium": true to its entry in the besaid-mock-accounts storage.
+  function readProfile(username) {
+    const isAdmin = username === ADMIN_USERNAME;
+    const account = isAdmin ? null : read(ACCOUNTS_KEY, {})[username];
+    const settings = settingsFor(username);
+    const games = read(gamesKey(username), []);
+    const bytes = value => (value ? new TextEncoder().encode(JSON.stringify(value)).length : 0);
+    return {
+      username: displayName(username),
+      isAdmin,
+      isPremium: isAdmin || account?.premium === true,
+      games: games.length,
+      storage: {
+        games: games.reduce((total, game) => total + bytes(game), 0),
+        account: bytes(account) + bytes(settings)
+      },
+      color: cleanColor(settings?.color)
+    };
   }
 
   // The admin's games keep the original key, so an existing local backlog stays the
@@ -226,7 +261,7 @@
       if (url.searchParams.has('profile')) {
         const username = findAccount(url.searchParams.get('profile'));
         if (!username) return json(404, { error: 'There is no account with that name' });
-        return json(200, { profile: { username: displayName(username) } });
+        return json(200, { profile: readProfile(username) });
       }
       const owner = url.searchParams.has('user') ? findAccount(url.searchParams.get('user')) : ADMIN_USERNAME;
       if (!owner) return json(404, { error: 'There is no account with that name' });
@@ -240,6 +275,15 @@
       if (!session.isAdmin) return json(403, { error: 'Only the admin can clear errors' });
       localStorage.setItem(ERRORS_KEY, '[]');
       return json(200, { cleared: true });
+    }
+
+    if (method === 'POST' && body?.action === 'set-color') {
+      const color = body.color === '' ? null : cleanColor(body.color);
+      if (color === null && body.color !== '') return json(400, { error: 'Invalid colour' });
+      const settings = read(SETTINGS_KEY, {});
+      settings[session.account] = { ...settings[session.account], color };
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+      return json(200, { color });
     }
 
     // Changes only ever go to the signed-in account's own backlog.

@@ -7,7 +7,9 @@ Visit it at: https://kiwamasi.github.io/Besaid-Island/
 - **Home** (`index.html`): a grid of game cards. Each card opens that game's guide. There's one so far, for Dark Cloud 2.
 - **Dark Cloud 2 Photography & Scoop Log** (`dark_cloud_2_idea_book.html`): a checklist of every Scoop, Idea and Badge in Dark Cloud 2, with a tab per chapter plus a Badges tab. One-shot photos you can miss are flagged in red with the reason. Running totals show points toward Level 8 per chapter and overall. Your ticks are saved in your own browser, and "Clear all checkmarks" resets them.
 - **Backlog** (`backlog.html`): games still to play, grouped into PS5, PS3 and Misc and sorted alphabetically, with a search filter and a button per genre that shows only that genre's games. Every account has its own backlog, at `backlog.html?user=<name>`, which anyone can look at and only its owner can change. Without a name in the link, the page shows your own backlog when you're signed in (and adds your name to the address, ready to share), or Kiwamari's when you're not. The heading names the owner, like "Kiwamari's Backlog". On your own backlog, a green "+" at the end of each section opens a slot to type a game name and an optional note (Enter or clicking away adds it, Escape cancels). On each game, the pen reopens that slot to edit it, and the red "−" removes it. Games on Kiwamari's backlog are given a genre (RPG, Shooter, …) automatically when they're saved; anyone can type one in brackets (see below). Genres show in brackets after the note, like "Replaying on hard (RPG)", or just "(RPG)" with no note.
-- **Profile** (`profile.html`): each account's profile, at `profile.html?user=<name>`, picked the same way as the backlog. Just "(Name)'s profile" for now.
+- **Profile** (`profile.html`): each account's profile, at `profile.html?user=<name>`, picked the same way as the backlog. It shows whether the account is the admin and a premium user, how many games are in its backlog, the storage it uses (its games and its account record, separately), and its site colour. Anyone can see any profile.
+  - **Colour:** on your own profile, the colour picker sets your site colour. It replaces the trim colour on every page while you're signed in (dragging previews it, letting go saves it), and "Reset to default" goes back to the site's own. Other people see the site in their own colour, or the default.
+  - **Premium:** the admin always is. For anyone else, there's no button yet: add `"premium": true` to their account's record in the `backlog-accounts` store on Netlify.
 - **Accounts** (every page): the "Sign in / Create account" button in the header opens a sign-in box on whichever page you're on. Anyone can make an account, which comes with its own backlog and profile. Kiwamari is the one admin account: only it gets automatic genres from Gemini, and only it sees errors and Gemini usage on the Stats page.
 
 ## How it's put together
@@ -82,7 +84,7 @@ and starts its `<body>` with:
 
 When the site is opened from `localhost` or straight from the files on disk, `js/local-mock-api.js` stands in for Netlify. New ideas can then be tried without touching the real backlog. Everything is kept in that browser only, and an orange "Local mock API" badge shows while it's active.
 
-- The local copy starts signed in as admin with an empty backlog, ready for adding, editing and removing games.
+- The local copy starts signed in as admin with an empty backlog, ready for adding, editing and removing games. Profile colours are saved in the browser too.
 - Other accounts can be created locally, each with its own backlog and profile, to try sharing links and see the site as someone else would. Signing in as "kiwamari" with any password makes you admin again.
 - Clearing the browser's stored data for the local site resets it.
 - Adding `?mock=off` to the address uses the real backlog instead, and `?mock=on` switches back. The browser remembers the choice.
