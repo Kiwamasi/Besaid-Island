@@ -73,7 +73,10 @@ html {
 .site-header .site-nav ul {
   display: flex;
   justify-content: space-between;
-  gap: clamp(1.28rem, 4.75vw, 3.96rem);
+  /* The spacing you see on wide screens comes from --site-nav-width and
+     space-between; the gap is only the least the links may close up to, so it stays
+     small enough for the nav to fit between the account slots on mid-size windows. */
+  gap: clamp(0.8rem, 2vw, 3.96rem);
   flex-wrap: nowrap;
   margin: 0;
   padding: 0;
@@ -158,6 +161,44 @@ html {
 .site-account-signout:hover,
 .site-account-signout:focus-visible {
   color: var(--site-accent);
+}
+
+@media (max-width: 1050px) {
+  .site-header .site-nav a {
+    font-size: 1rem;
+  }
+}
+
+/* Too narrow to keep the nav centred between two account-sized slots: the nav sits
+   at the left, the account controls take what's left (a long name gets "…"). */
+@media (max-width: 900px) {
+  .site-header {
+    grid-template-columns: 0 auto minmax(0, 1fr);
+    column-gap: 1rem;
+  }
+}
+
+/* Phones: no room for both on one line, so the account controls get their own row
+   above the nav. */
+@media (max-width: 600px) {
+  .site-header {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 0.35rem;
+    height: auto;
+    min-height: var(--site-header-height);
+    padding-block: 0.45rem;
+  }
+
+  .site-header .site-nav {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .site-account {
+    grid-column: 1;
+    grid-row: 1;
+    max-width: 100%;
+  }
 }
 
 @media (max-width: 520px) {

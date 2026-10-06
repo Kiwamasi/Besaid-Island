@@ -35,6 +35,7 @@ The site is plain HTML, CSS and JavaScript, hosted on **GitHub Pages**. The shar
   - `local-mock-api.js`: a stand-in for Netlify while testing changes locally (see below).
   - `backlog.js`: the backlog page.
   - `profile.js`: the profile page.
+  - `energy-chart.js`: the half-hourly electricity chart in the profile's admin panel.
   - `users.js`: the users page.
   - `about.js`: the Stats page (from GitHub and from Netlify).
   - `home.js`: the floating hover effect on the home page cards.
@@ -64,7 +65,7 @@ The key stays on Netlify; it never goes in this repo or the pages.
 
 ### Electricity (Octopus Energy)
 
-Kiwamari's profile has an admin panel, seen only by Kiwamari, with electricity use and costs for today, yesterday, this week, this month and this year. The Netlify service gets them from the [Octopus Energy API](https://developer.octopus.energy/rest/) (`netlify/lib/octopus.mjs`) and refuses anyone but the admin. The API key and meter details stay on Netlify; they never go in this repo or the pages.
+Kiwamari's profile has an admin panel, seen only by Kiwamari, with electricity use and costs for today, yesterday, this week, this month and this year, and a half-hourly chart of each of the last 31 days that have readings (previous/next day buttons; hover a column, or focus the chart and use the arrow keys, for its time, kWh and cost; night-rate hours are shaded; "Show as table" lists every half hour). The Netlify service gets them from the [Octopus Energy API](https://developer.octopus.energy/rest/) (`netlify/lib/octopus.mjs`) and refuses anyone but the admin. The API key and meter details stay on Netlify; they never go in this repo or the pages.
 
 Setup: in Netlify, **Site configuration → Environment variables**, add:
 
@@ -72,10 +73,11 @@ Setup: in Netlify, **Site configuration → Environment variables**, add:
 - `OCTOPUS_MPAN`: the electricity meter's MPAN.
 - `OCTOPUS_SERIAL`: the electricity meter's serial number.
 - `OCTOPUS_ACCOUNT`: the account number (A-XXXXXXXX). Optional, but costs need it, as it's how the tariff is found.
+- `OCTOPUS_NIGHT_HOURS`: for two-rate (Economy 7 style, `E-2R-…`) tariffs only, when the night rate applies, in GMT, like `00:30-07:30` (the default if it's not set). Night hours depend on the meter; they're on the bill or the Octopus app's tariff details. The meter stays on GMT all year, so in summer the night rate is an hour later on the clock.
 
 Then **Deploys → Trigger deploy**.
 
-- **Costs** use the real tariff for every half hour (so Agile and Go are priced right), plus the daily standing charge, with VAT, assuming payment by direct debit. Two-rate (Economy 7 style) tariffs can't be priced, as the API doesn't say which hours are night; costs that couldn't all be priced show with a "~".
+- **Costs** use the real tariff for every half hour (so Agile and Go are priced right), plus the daily standing charge, with VAT, assuming payment by direct debit. Two-rate tariffs use the night price during `OCTOPUS_NIGHT_HOURS` and the day price otherwise. Costs that couldn't all be priced show with a "~".
 - **Today** is usually empty: smart meter readings reach Octopus about a day later. The panel says how far the readings go.
 - The summary is kept for 30 minutes so Octopus isn't asked on every visit; **Refresh** asks again straight away.
 

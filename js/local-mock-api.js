@@ -310,10 +310,23 @@
           unitCost: Math.round(days * 8.4 * 24.5 * 100) / 100, standingCharge: Math.round(days * 51.2 * 100) / 100, complete: true
         });
         return json(200, {
-          tariff: 'E-1R-VAR-22-11-01-C',
+          tariff: 'E-2R-VAR-22-11-01-C',
+          nightHours: '00:30–07:30 GMT',
           costs: true,
           latestReading: midnight,
           updatedAt: now,
+          // Five past days of half hours: a made-up evening peak, night rate 00:30-07:30 GMT.
+          days: [5, 4, 3, 2, 1].map(back => {
+            const dayStart = midnight - back * 86400000;
+            const readings = Array.from({ length: 48 }, (unused, half) => {
+              const start = dayStart + half * 1800000;
+              const gmtMinutes = (start % 86400000) / 60000;
+              const night = gmtMinutes >= 30 && gmtMinutes < 450 ? 1 : 0;
+              const kwh = Math.round((0.08 + 0.35 * Math.exp(-((half - 37 + back % 3) ** 2) / 18) + (half % 7) * 0.01) * 1000) / 1000;
+              return [start, kwh, Math.round(kwh * (night ? 13.5 : 31.2) * 100) / 100, night];
+            });
+            return { date: new Date(dayStart).toLocaleDateString('en-CA'), readings };
+          }),
           periods: {
             today: { ...period(midnight, 0), complete: true },
             yesterday: { ...period(midnight - 86400000, 1), to: midnight },

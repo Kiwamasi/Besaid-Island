@@ -19,6 +19,7 @@ const adminPanel = document.getElementById('adminPanel');
 const energyTiles = document.getElementById('energyTiles');
 const energyNote = document.getElementById('energyNote');
 const energyRefresh = document.getElementById('energyRefresh');
+const energyChart = document.getElementById('energyChart');
 let requestedOwner = null;
 let profile = null;
 let loadVersion = 0;
@@ -172,13 +173,20 @@ async function loadEnergy(fresh = false) {
   } catch (error) {
     if (version !== energyVersion) return;
     energyTiles.replaceChildren();
+    energyChart.replaceChildren();
     energyNote.textContent = error.message;
   } finally {
     if (version === energyVersion) energyRefresh.disabled = false;
   }
 }
 
-function showEnergy({ periods, costs, tariff, latestReading, updatedAt }) {
+function showEnergy({ periods, costs, tariff, nightHours, latestReading, updatedAt, days }) {
+  // Half-hourly chart of past days (js/energy-chart.js). A summary saved before the
+  // chart existed has no days; Refresh fetches them.
+  if (days) window.energyChart.show(energyChart, days, costs);
+  else energyChart.replaceChildren(Object.assign(document.createElement('p'), {
+    className: 'energy-chart-empty', textContent: 'Press Refresh to load the chart.'
+  }));
   energyTiles.replaceChildren(...ENERGY_PERIODS.map(([key, label]) => {
     const period = periods[key];
     const tile = document.createElement('li');
@@ -204,6 +212,7 @@ function showEnergy({ periods, costs, tariff, latestReading, updatedAt }) {
   }));
   energyNote.textContent = [
     tariff && `Tariff ${tariff}`,
+    nightHours && `Night rate ${nightHours}`,
     !costs && 'Add OCTOPUS_ACCOUNT on Netlify to see costs',
     latestReading ? `Readings up to ${dateTimeFormat.format(latestReading)}` : 'No readings yet',
     `Checked ${dateTimeFormat.format(updatedAt)}`

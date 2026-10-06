@@ -216,6 +216,148 @@
   display: none;
 }
 
+/* ---------- Half-hourly chart (js/energy-chart.js) ---------- */
+
+.energy-chart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.energy-chart-title {
+  display: grid;
+  justify-items: center;
+  color: var(--site-ink);
+  font-size: 0.88rem;
+}
+
+.energy-chart-total {
+  color: var(--site-muted);
+  font-size: 0.75rem;
+}
+
+.profile-button:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.profile-button:disabled:hover {
+  border-color: var(--site-line-strong);
+  color: var(--site-ink);
+}
+
+.energy-chart-frame {
+  position: relative;
+  margin-top: 0.5rem;
+}
+
+.energy-chart-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.energy-chart-svg:focus-visible {
+  outline: 2px solid var(--site-focus);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
+.energy-grid {
+  stroke: var(--site-line);
+  stroke-width: 1;
+}
+
+.energy-axis,
+.energy-night-label {
+  fill: var(--site-muted);
+  font-family: 'IBM Plex Sans', Arial, sans-serif;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.energy-night-band {
+  fill: rgba(241, 240, 235, 0.05);
+}
+
+.energy-bar {
+  fill: var(--site-accent);
+  transition: fill 120ms ease;
+}
+
+.energy-bar.is-active {
+  fill: var(--site-accent-hover);
+}
+
+.energy-hit {
+  fill: transparent;
+}
+
+.energy-tooltip {
+  position: absolute;
+  display: grid;
+  gap: 0.1rem;
+  min-width: 6.5rem;
+  border: 1px solid var(--site-line-strong);
+  border-radius: 6px;
+  padding: 0.4rem 0.55rem;
+  background: var(--site-header-bg);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.energy-tooltip[hidden] {
+  display: none;
+}
+
+.energy-tip-value {
+  color: var(--site-ink);
+  font-size: 0.85rem;
+}
+
+.energy-tip-detail,
+.energy-tip-time {
+  color: var(--site-muted);
+  font-size: 0.72rem;
+}
+
+.energy-chart-empty {
+  color: var(--site-muted);
+  font-size: 0.8rem;
+}
+
+.energy-table-box {
+  margin-top: 0.5rem;
+  color: var(--site-muted);
+  font-size: 0.78rem;
+}
+
+.energy-table-box summary {
+  cursor: pointer;
+}
+
+.energy-table {
+  margin-top: 0.4rem;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.energy-table th,
+.energy-table td {
+  border-bottom: 1px solid var(--site-line);
+  padding: 0.2rem 1.2rem 0.2rem 0;
+  color: var(--site-ink);
+  text-align: left;
+}
+
+.energy-table th {
+  color: var(--site-muted);
+  font-weight: 500;
+}
+
 @media (max-width: 720px) {
   .profile-main { padding: 1.25rem 1rem 2rem; }
   .profile-row { grid-template-columns: 8rem minmax(0, 1fr); }

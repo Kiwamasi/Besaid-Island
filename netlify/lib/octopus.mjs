@@ -6,15 +6,20 @@
 //   OCTOPUS_SERIAL    the electricity meter's serial number
 //   OCTOPUS_ACCOUNT   the account number (A-XXXXXXXX); optional, but needed for costs,
 //                     as it's how the tariff and its prices are found
+//   OCTOPUS_NIGHT_HOURS  for two-rate (Economy 7 style) tariffs only: when the night
+//                     rate applies, in GMT, like "00:30-07:30" (the default). The meter
+//                     keeps GMT all year, so in summer that's an hour later on the clock.
 //
 // Costs use the account's real tariff for each half hour: the unit rate in force then
 // (so time-of-use tariffs like Agile and Go are priced correctly) plus the daily
-// standing charge, both including VAT. Only single-rate tariffs (E-1R-…) are priced;
-// Economy 7 style two-rate tariffs (E-2R-…) don't say in the API which hours are night.
+// standing charge, both including VAT. Two-rate tariffs (E-2R-…) have a day and a
+// night price; the API doesn't say which hours are night, hence OCTOPUS_NIGHT_HOURS.
 
 const API = 'https://api.octopus.energy/v1';
 const DAY_MS = 86400000;
 const REQUEST_TIMEOUT_MS = 20000;
+// The profile's half-hourly chart covers the days with readings in this many past days.
+const CHART_DAYS = 31;
 
 export function octopusConfigured() {
   return Boolean(process.env.OCTOPUS_API_KEY && process.env.OCTOPUS_MPAN && process.env.OCTOPUS_SERIAL);
@@ -112,14 +117,37 @@ function productCode(tariffCode) {
   return tariffCode.split('-').slice(2, -1).join('-');
 }
 
+// When the night rate applies, as minutes after midnight GMT: { start, end, text }.
+// The night can run past midnight ("23:30-06:30").
+const DEFAULT_NIGHT_HOURS = '00:30-07:30';
+function nightHours() {
+  const parse = text => {
+    const match = text.trim().match(/^(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})$/);
+    if (!match) return null;
+    const [start, end] = [[match[1], match[2]], [match[3], match[4]]].map(([hours, minutes]) => Number(hours) * 60 + Number(minutes));
+    return start < 1440 && end <= 1440 && start !== end ? { start, end } : null;
+  };
+  const hours = parse(process.env.OCTOPUS_NIGHT_HOURS || '') || parse(DEFAULT_NIGHT_HOURS);
+  const clock = minutes => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+  return { ...hours, text: `${clock(hours.start)}–${clock(hours.end)} GMT` };
+}
+
+function isNight(time, night) {
+  const minutes = Math.floor((time % DAY_MS) / 60000);
+  return night.start < night.end
+    ? minutes >= night.start && minutes < night.end
+    : minutes >= night.start || minutes < night.end;
+}
+
 // A month at a time, side by side: a year of half-hourly prices (Agile) is about 17,500
-// rows, and Octopus gives at most 1,500 a page.
-async function unitRates(tariffCode, from, to) {
+// rows, and Octopus gives at most 1,500 a page. kind is "standard-unit-rates" (one
+// price) or, for two-rate tariffs, "day-unit-rates" / "night-unit-rates".
+async function unitRates(tariffCode, kind, from, to) {
   const chunks = [];
   for (let start = from; start < to; start = Math.min(to, start + 31 * DAY_MS)) {
     chunks.push([start, Math.min(to, start + 31 * DAY_MS)]);
   }
-  const path = `/products/${productCode(tariffCode)}/electricity-tariffs/${tariffCode}/standard-unit-rates/`;
+  const path = `/products/${productCode(tariffCode)}/electricity-tariffs/${tariffCode}/${kind}/`;
   const lists = await Promise.all(chunks.map(([start, end]) =>
     getAll(path, { period_from: iso(start), period_to: iso(end), page_size: 1500 })));
   return cleanRates(lists.flat());
@@ -147,12 +175,14 @@ async function readAgreements(from, to) {
   return Promise.all(agreements.map(async agreement => {
     const start = Math.max(from, agreement.from);
     const end = Math.min(to, agreement.to);
-    const priced = agreement.tariff.startsWith('E-1R-');
-    const [units, standing] = await Promise.all([
-      priced ? unitRates(agreement.tariff, start, end) : [],
+    const twoRate = agreement.tariff.startsWith('E-2R-');
+    const priced = twoRate || agreement.tariff.startsWith('E-1R-');
+    const [units, nightUnits, standing] = await Promise.all([
+      priced ? unitRates(agreement.tariff, twoRate ? 'day-unit-rates' : 'standard-unit-rates', start, end) : [],
+      twoRate ? unitRates(agreement.tariff, 'night-unit-rates', start, end) : [],
       standingCharges(agreement.tariff, start, end)
     ]);
-    return { ...agreement, priced, units, standing };
+    return { ...agreement, priced, twoRate, units, nightUnits, standing };
   }));
 }
 
@@ -161,6 +191,9 @@ async function readAgreements(from, to) {
 // { tariff, costs, latestReading, periods: { today, yesterday, week, month, year } }.
 // Each period: { from, to, kwh, unitCost, standingCharge, complete } in kWh and pence;
 // complete is false when some of its use couldn't be priced.
+// days: the half-hourly readings for the chart, for each UK day in the last CHART_DAYS
+// that has any, oldest first: [{ date: 'YYYY-MM-DD', readings: [[start, kWh, pence or
+// null if unpriced, 1 if at the night rate else 0], …] }].
 export async function readEnergySummary(now = Date.now()) {
   const { year, month, day } = londonDate(now);
   const daysSinceMonday = (new Date(Date.UTC(year, month - 1, day)).getUTCDay() + 6) % 7;
@@ -172,7 +205,9 @@ export async function readEnergySummary(now = Date.now()) {
     month: { from: londonMidnight(year, month, 1), to: now },
     year: { from: londonMidnight(year, 1, 1), to: now }
   };
-  const from = Math.min(...Object.values(periods).map(period => period.from));
+  const chartFrom = londonMidnight(year, month, day - CHART_DAYS);
+  const from = Math.min(chartFrom, ...Object.values(periods).map(period => period.from));
+  const round = (value, places) => Math.round(value * 10 ** places) / 10 ** places;
 
   const mpan = encodeURIComponent(process.env.OCTOPUS_MPAN);
   const serial = encodeURIComponent(process.env.OCTOPUS_SERIAL);
@@ -183,16 +218,32 @@ export async function readEnergySummary(now = Date.now()) {
     process.env.OCTOPUS_ACCOUNT ? readAgreements(from, now) : null
   ]);
   const agreementAt = time => agreements?.find(agreement => agreement.from <= time && time < agreement.to);
+  const night = nightHours();
+  const priceAt = (agreement, time) => {
+    if (!agreement?.priced) return null;
+    return rateAt(agreement.twoRate && isNight(time, night) ? agreement.nightUnits : agreement.units, time);
+  };
 
   const totals = Object.fromEntries(Object.entries(periods).map(([name, period]) =>
     [name, { ...period, kwh: 0, unitCost: 0, standingCharge: 0, complete: true }]));
   let latestReading = null;
+  const chartDays = new Map();
   for (const reading of readings) {
     const start = Date.parse(reading.interval_start);
     const kwh = Number(reading.consumption) || 0;
     const agreement = agreementAt(start);
-    const price = agreement?.priced ? rateAt(agreement.units, start) : null;
+    const price = priceAt(agreement, start);
     latestReading = Math.max(latestReading || 0, Date.parse(reading.interval_end));
+    if (start >= chartFrom) {
+      const date = londonDay.format(new Date(start));
+      if (!chartDays.has(date)) chartDays.set(date, []);
+      chartDays.get(date).push([
+        start,
+        round(kwh, 3),
+        price === null ? null : round(kwh * price, 2),
+        agreement?.twoRate && isNight(start, night) ? 1 : 0
+      ]);
+    }
     for (const total of Object.values(totals)) {
       if (start < total.from || start >= total.to) continue;
       total.kwh += kwh;
@@ -215,16 +266,20 @@ export async function readEnergySummary(now = Date.now()) {
     }
   }
 
-  const round = (value, places) => Math.round(value * 10 ** places) / 10 ** places;
   for (const total of Object.values(totals)) {
     total.kwh = round(total.kwh, 3);
     total.unitCost = round(total.unitCost, 2);
     total.standingCharge = round(total.standingCharge, 2);
   }
+  const current = agreementAt(now);
   return {
-    tariff: agreementAt(now)?.tariff || null,
+    tariff: current?.tariff || null,
+    // For two-rate tariffs, the night hours used, like "00:30–07:30 GMT".
+    nightHours: current?.twoRate ? night.text : null,
     costs: Boolean(agreements),
     latestReading,
-    periods: totals
+    periods: totals,
+    days: [...chartDays].sort(([first], [second]) => first.localeCompare(second))
+      .map(([date, dayReadings]) => ({ date, readings: dayReadings.sort((first, second) => first[0] - second[0]) }))
   };
 }
