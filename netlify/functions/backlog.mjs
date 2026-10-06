@@ -716,7 +716,7 @@ export default async (request, context) => {
         if (!session?.isAdmin) return respond(request, 403, { error: 'Only the admin can see energy use' });
         if (!octopusConfigured()) {
           return respond(request, 503, {
-            error: 'Octopus isn't set up yet: add OCTOPUS_API_KEY, OCTOPUS_MPAN, OCTOPUS_SERIAL and OCTOPUS_ACCOUNT on Netlify'
+            error: "Octopus isn't set up yet: add OCTOPUS_API_KEY, OCTOPUS_MPAN, OCTOPUS_SERIAL and OCTOPUS_ACCOUNT on Netlify"
           });
         }
         const saved = await statsStore().get(ENERGY_KEY, { type: 'json' });

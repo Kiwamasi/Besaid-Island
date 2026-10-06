@@ -166,6 +166,8 @@ async function loadEnergy(fresh = false) {
   try {
     const energy = await account.request('GET', null, `?energy=${fresh ? 'fresh' : '1'}`);
     if (version !== energyVersion) return;
+    // An older Netlify service doesn't know ?energy and answers with a backlog instead.
+    if (!energy.periods) throw new Error('The Netlify service is out of date: redeploy it (Netlify → Deploys → Trigger deploy).');
     showEnergy(energy);
   } catch (error) {
     if (version !== energyVersion) return;
