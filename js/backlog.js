@@ -308,11 +308,12 @@ async function loadGamesFor(name) {
 
 // Games saved before genres existed, or while the genre service was down, get one
 // now: one game at a time, spaced out to stay under Google's per-minute limit.
-// Stops at the first one Google doesn't answer; the next visit tries again.
+// Stops at the first one Google doesn't answer; the next visit tries again. Games
+// Gemini found no genre for (noGenre) aren't asked about again.
 async function fillMissingCategories() {
   for (;;) {
     // Gemini genres are for the admin's own backlog only.
-    const game = canEdit() && account.user?.isAdmin && apiReady && games.find(entry => !entry.category);
+    const game = canEdit() && account.user?.isAdmin && apiReady && games.find(entry => !entry.category && !entry.noGenre);
     if (!game) return;
     let result;
     try {
@@ -320,7 +321,7 @@ async function fillMissingCategories() {
     } catch {
       return;
     }
-    if (!result.game?.category) return;
+    if (!result.game?.category && !result.game?.noGenre) return;
     showCategory(result.game);
     await new Promise(resolve => setTimeout(resolve, CATEGORIZE_SPACING_MS));
   }
@@ -328,10 +329,10 @@ async function fillMissingCategories() {
 
 // Puts a genre from the server into the list without redrawing everything,
 // so an open slot keeps its cursor.
-function showCategory({ id, category }) {
+function showCategory({ id, category, noGenre }) {
   const game = games.find(entry => entry.id === id);
   if (!game) return;
-  const updated = { ...game, category };
+  const updated = { ...game, category, noGenre };
   games = games.map(entry => entry === game ? updated : entry);
   renderGenreFilters();
   const slot = findSlot(id);
@@ -627,7 +628,8 @@ function saveNewGame({ refocus }) {
   account.request('POST', { game })
     .then(result => {
       games = games.map(entry => entry.id === game.id ? result.game : entry);
-      if (result.game.category) showCategory(result.game);
+      // The server may have picked a genre, or dropped one that isn't a genre any more.
+      if (result.game.category !== game.category) showCategory(result.game);
       saveNote.textContent = 'Backlog saved';
     })
     .catch(error => {
@@ -672,7 +674,7 @@ function saveEdit({ refocus }) {
   account.request('POST', { game: updated })
     .then(result => {
       games = games.map(entry => entry.id === original.id ? result.game : entry);
-      if (result.game.category !== original.category) showCategory(result.game);
+      if (result.game.category !== updated.category) showCategory(result.game);
       saveNote.textContent = 'Backlog saved';
     })
     .catch(error => {

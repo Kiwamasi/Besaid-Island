@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#1d201e">
+  <title>Users | Besaid Island</title>
+  <link rel="icon" href="assets/favicon.ico" type="image/x-icon">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Marcellus&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/site.css">
+  <link rel="stylesheet" href="css/users.css">
+</head>
+<body>
+  <header class="site-header"></header>
+  <script src="js/site-header.js"></script>
+  <script src="js/site-config.js"></script>
+  <script src="js/local-mock-api.js"></script>
+  <script src="js/site-account.js"></script>
+  <script src="js/site-telemetry.js"></script>
+
+  <main class="users-main">
+    <div class="users-shell">
+      <h1 class="users-title">Users</h1>
+      <p class="users-note" id="usersNote" role="status">Loading users…</p>
+      <ul class="users-list" id="usersList"></ul>
+    </div>
+  </main>
+
+  <!-- Admin only: asked before deleting an account (the bin next to each user). -->
+  <dialog class="site-dialog users-delete-dialog" id="deleteDialog" aria-labelledby="deleteTitle">
+    <div class="dialog-heading">
+      <h2 id="deleteTitle">Delete account?</h2>
+    </div>
+    <p class="users-delete-text" id="deleteText"></p>
+    <p class="users-delete-error" id="deleteError" role="alert"></p>
+    <div class="dialog-actions">
+      <button class="button-secondary" type="button" id="deleteNo">No</button>
+      <button class="button-primary users-delete-yes" type="button" id="deleteYes">Yes, delete</button>
+    </div>
+  </dialog>
+
+  <script src="js/users.js"></script>
+</body>
+</html>

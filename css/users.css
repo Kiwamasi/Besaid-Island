@@ -1,0 +1,142 @@
+/* Users page. Shared colours come from css/site.css. */
+
+.users-main {
+  padding: 1.5rem 2rem 3rem;
+}
+
+.users-shell {
+  width: min(100%, 1300px);
+  margin: 0 auto;
+  font-family: 'IBM Plex Sans', Arial, sans-serif;
+}
+
+.users-title {
+  padding: 0.6rem 0 1rem;
+  border-bottom: 1px solid var(--site-line);
+  color: var(--site-ink);
+  font-size: 1.8rem;
+  font-weight: 400;
+  line-height: 1.15;
+}
+
+.users-note {
+  padding: 0.8rem 0 0.4rem;
+  color: var(--site-muted);
+  font-size: 0.85rem;
+}
+
+.users-list {
+  max-width: 40rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.users-list li {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--site-line);
+}
+
+.users-link {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.4rem;
+  color: var(--site-ink);
+  text-decoration: none;
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.users-link:hover,
+.users-link:focus-visible {
+  background: color-mix(in srgb, var(--trim-color) 7%, transparent);
+  color: var(--site-accent);
+}
+
+.users-name {
+  font-size: 0.95rem;
+  overflow-wrap: anywhere;
+}
+
+.users-tag {
+  border: 1px solid var(--site-line-strong);
+  border-radius: 999px;
+  padding: 0 0.5rem;
+  color: var(--site-muted);
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
+
+/* ---------- Deleting an account (admin only) ---------- */
+
+/* Red like the backlog's remove button. */
+.users-delete {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+  border: 0;
+  border-radius: 4px;
+  padding: 0;
+  background: transparent;
+  color: #e56f70;
+  cursor: pointer;
+}
+
+.users-delete:hover,
+.users-delete:focus-visible {
+  background: rgba(229, 111, 112, 0.1);
+  color: #ff9a9b;
+}
+
+.users-delete svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.users-delete-dialog {
+  width: min(calc(100% - 2rem), 26rem);
+}
+
+.users-delete-text {
+  color: var(--site-ink);
+  font-family: 'IBM Plex Sans', Arial, sans-serif;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.users-delete-error {
+  margin-top: 0.6rem;
+  color: #ff9a9b;
+  font-family: 'IBM Plex Sans', Arial, sans-serif;
+  font-size: 0.82rem;
+}
+
+.users-delete-error:empty {
+  display: none;
+}
+
+.users-delete-dialog .button-primary,
+.users-delete-dialog .button-secondary {
+  padding: 0.5rem 0.9rem;
+  font-family: 'IBM Plex Sans', Arial, sans-serif;
+  font-size: 0.85rem;
+}
+
+.users-delete-dialog .users-delete-yes {
+  border-color: #e56f70;
+  background: #e56f70;
+  color: #24251f;
+}
+
+.users-delete-dialog .users-delete-yes:hover {
+  background: #ff9a9b;
+}
+
+@media (max-width: 720px) {
+  .users-main { padding: 1.25rem 1rem 2rem; }
+}

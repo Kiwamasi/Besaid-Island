@@ -28,8 +28,12 @@ const MAX_ERRORS = 50;
 // explains Souls-Like and Builder, and that strategy games go under RPG.
 const GAME_CATEGORIES = [
   'Action', 'Action RPG', 'Adventure', 'Builder', 'Fighting', 'Horror', 'Platformer', 'Puzzle',
-  'Racing', 'RPG', 'Shooter', 'Simulation', 'Souls-Like', 'Sports', 'Other'
+  'Racing', 'RPG', 'Shooter', 'Souls-Like', 'Sports'
 ];
+// No longer genres. Gemini can still answer these (so it has a way to say "none of
+// the above"), and a game it puts there is left without a genre and marked noGenre,
+// so it isn't asked about again. Old games and typed brackets with these show none.
+const REMOVED_GENRES = ['Other', 'Simulation'];
 // Google has no API for remaining quota, so Gemini calls are counted here for the
 // Stats page, per Pacific day because that's when Google resets daily limits.
 // Kept forever, like page views: a day is only a few bytes.
@@ -89,8 +93,10 @@ function sign(payload) {
     .digest('base64url');
 }
 
+// iat (when the session started) lets a session be told apart from a newer account
+// with the same name, made after the old one was deleted. See activeSession.
 function createSession(username) {
-  const payload = Buffer.from(JSON.stringify({ sub: username })).toString('base64url');
+  const payload = Buffer.from(JSON.stringify({ sub: username, iat: Date.now() })).toString('base64url');
   return `${payload}.${sign(payload)}`;
 }
 
@@ -110,10 +116,34 @@ function getSession(request) {
     if (typeof session.sub !== 'string') return null;
     if (session.exp && session.exp <= Math.floor(Date.now() / 1000)) return null;
     const username = normalizeUsername(session.sub);
-    return { username, isAdmin: username === ADMIN_USERNAME };
+    return { username, isAdmin: username === ADMIN_USERNAME, iat: Number(session.iat) || 0 };
   } catch {
     return null;
   }
+}
+
+// The session, if its account still exists: a deleted account's sessions stop
+// working, including for a new account later made with the same name (sessions
+// from before that account was created don't count for it). Accounts made before
+// createdAt was recorded have none, and their sessions keep working.
+async function activeSession(request) {
+  const session = getSession(request);
+  if (!session || session.isAdmin) return session;
+  const account = await accountsStore().get(accountKey(session.username), { type: 'json' });
+  if (!account) return null;
+  if (account.createdAt && session.iat < account.createdAt) return null;
+  return session;
+}
+
+// Removes an account and everything kept for it: its backlog, its settings and the
+// account itself. The admin account can't be deleted.
+async function deleteAccount(username) {
+  const store = getStore({ name: STORE_NAME, consistency: 'strong' });
+  const { blobs } = await store.list({ prefix: backlogPrefix(username) });
+  await Promise.all(blobs.map(({ key }) => store.delete(key)));
+  const accounts = accountsStore();
+  await accounts.delete(settingsKey(username));
+  await accounts.delete(accountKey(username));
 }
 
 function normalizeUsername(username) {
@@ -200,10 +230,27 @@ async function findAccount(name) {
   return saved ? username : null;
 }
 
+// The username an account's key was made from (see accountKey).
+function usernameFromKey(key) {
+  const rest = key.slice(ACCOUNT_KEY_PREFIX.length);
+  return rest.startsWith('~') ? Buffer.from(rest.slice(1), 'base64url').toString('utf8') : rest;
+}
+
+// Every account for the Users page: the admin first, then A–Z.
+async function listUsers() {
+  const { blobs } = await accountsStore().list({ prefix: ACCOUNT_KEY_PREFIX });
+  const usernames = blobs.map(({ key }) => usernameFromKey(key))
+    .sort((first, second) => first.localeCompare(second, undefined, { numeric: true, sensitivity: 'base' }));
+  return [ADMIN_USERNAME, ...usernames].map(username => ({
+    username: displayName(username),
+    isAdmin: username === ADMIN_USERNAME
+  }));
+}
+
 async function listGames(store, username) {
   const { blobs } = await store.list({ prefix: backlogPrefix(username) });
   const games = await Promise.all(blobs.map(({ key }) => store.get(key, { type: 'json' })));
-  return games.filter(Boolean);
+  return games.filter(Boolean).map(withoutRemovedGenre);
 }
 
 async function hashPassword(password, salt = randomBytes(16).toString('hex')) {
@@ -240,20 +287,27 @@ function cleanGame(game) {
 
 // ---------- Genres ----------
 
-// Returns one of GAME_CATEGORIES, or '' if Gemini isn't set up or doesn't answer.
+// A game whose genre is one of REMOVED_GENRES, shown and saved without one.
+function withoutRemovedGenre(game) {
+  const removed = REMOVED_GENRES.some(genre => genre.toLowerCase() === game.category?.toLowerCase());
+  return removed ? { ...game, category: '', noGenre: true } : game;
+}
+
+// Returns one of GAME_CATEGORIES, '' if Gemini picked one of REMOVED_GENRES (no genre),
+// or null if Gemini isn't set up or doesn't answer.
 // Only the game's name is sent to Google, never its note or anything else.
 // Failures are logged to the Stats page errors, and the game is saved without a
 // genre so the backfill can try again later.
 async function categorizeGame(game) {
   if (!process.env.GEMINI_API_KEY) {
     await logGeminiError('GEMINI_API_KEY is not set');
-    return '';
+    return null;
   }
   const usage = await statsStore().get(GEMINI_USAGE_KEY, { type: 'json' }).catch(() => null);
   const models = GEMINI_MODELS.filter(model =>
     !(Date.now() - (usage?.limited?.[model] || 0) < GEMINI_COOLDOWN_MS));
   // Every model is cooling down after a 429; skip quietly, the backfill retries later.
-  if (!models.length) return '';
+  if (!models.length) return null;
 
   const started = Date.now();
   const timeLeft = () => Math.min(GEMINI_TIMEOUT_MS, GEMINI_TOTAL_MS - (Date.now() - started));
@@ -286,6 +340,7 @@ async function categorizeGame(game) {
         try { return JSON.parse(text).category; } catch { return null; }
       })();
       if (GAME_CATEGORIES.includes(category)) return category;
+      if (REMOVED_GENRES.includes(category)) return '';
       failures.push(`${model}: unexpected answer ${JSON.stringify(text.slice(0, 80))}`);
     } catch (error) {
       await recordGeminiCall(model, 'failed');
@@ -293,7 +348,7 @@ async function categorizeGame(game) {
     }
   }
   await logGeminiError(failures.join('; '));
-  return '';
+  return null;
 }
 
 // Several games of a series share one slot by ending in numbers split by slashes
@@ -325,7 +380,7 @@ function askGemini(model, title, lowThinking, timeout) {
           responseMimeType: 'application/json',
           responseSchema: {
             type: 'OBJECT',
-            properties: { category: { type: 'STRING', enum: GAME_CATEGORIES } },
+            properties: { category: { type: 'STRING', enum: [...GAME_CATEGORIES, ...REMOVED_GENRES] } },
             required: ['category']
           },
           ...(lowThinking ? { thinkingConfig: { thinkingLevel: 'minimal' } } : {})
@@ -502,7 +557,7 @@ export default async (request, context) => {
           }
           const credentials = await hashPassword(password);
           pendingRegistration = { username, key, password };
-          const created = await accounts.set(key, JSON.stringify({ username, ...credentials }), {
+          const created = await accounts.set(key, JSON.stringify({ username, ...credentials, createdAt: Date.now() }), {
             onlyIfNew: true
           });
           if (!created.modified) return respond(request, 409, { error: 'That username is already taken' });
@@ -523,7 +578,7 @@ export default async (request, context) => {
 
     if (request.method === 'GET') {
       const params = new URL(request.url).searchParams;
-      const session = getSession(request);
+      const session = await activeSession(request);
       const user = session ? await publicUser(session.username) : null;
       if (params.has('session')) {
         return respond(request, 200, { user });
@@ -543,6 +598,10 @@ export default async (request, context) => {
           countryCode: geo.country?.code || null,
           timezone: geo.timezone || null
         });
+      }
+
+      if (params.has('users')) {
+        return respond(request, 200, { users: await listUsers() });
       }
 
       // ?profile=name: that account's profile page details.
@@ -565,8 +624,18 @@ export default async (request, context) => {
     }
 
     if (!secretsConfigured()) return respond(request, 503, { error: 'Login is not configured yet' });
-    const session = getSession(request);
+    const session = await activeSession(request);
     if (!session) return respond(request, 401, { error: 'Please sign in again' });
+
+    // Sent by the Users page. Deletes the account with its backlog and settings.
+    if (request.method === 'POST' && body?.action === 'delete-user') {
+      if (!session.isAdmin) return respond(request, 403, { error: 'Only the admin can delete accounts' });
+      const username = typeof body.username === 'string' ? await findAccount(body.username) : null;
+      if (!username) return respond(request, 404, { error: 'There is no account with that name' });
+      if (username === ADMIN_USERNAME) return respond(request, 400, { error: 'The admin account cannot be deleted' });
+      await deleteAccount(username);
+      return respond(request, 200, { deleted: true });
+    }
 
     if (request.method === 'POST' && body?.action === 'clear-errors') {
       if (!session.isAdmin) return respond(request, 403, { error: 'Only the admin can clear errors' });
@@ -587,17 +656,18 @@ export default async (request, context) => {
     const prefix = backlogPrefix(session.username);
 
     // Sent by js/backlog.js, one game at a time and spaced out, for the admin's games
-    // that have no genre yet (added before genres existed, or while Gemini was down).
+    // that Gemini hasn't answered for yet (added before genres existed, or while
+    // Gemini was down).
     if (request.method === 'POST' && body?.action === 'categorize') {
       if (!session.isAdmin) return respond(request, 403, { error: 'Automatic genres are only available to the admin' });
       if (!validId(body.id)) return respond(request, 400, { error: 'Invalid game id' });
       const key = `${prefix}${body.id}`;
       const saved = await store.getWithMetadata(key, { type: 'json' });
-      const game = saved?.data;
-      if (!game || game.category) return respond(request, 200, { game: game || null });
+      const game = saved?.data && withoutRemovedGenre(saved.data);
+      if (!game || game.category || game.noGenre) return respond(request, 200, { game: game || null });
       const category = await categorizeGame(game);
-      if (!category) return respond(request, 200, { game }); // Gemini unavailable; try again next time.
-      const categorized = { ...game, category };
+      if (category === null) return respond(request, 200, { game }); // Gemini unavailable; try again next time.
+      const categorized = category ? { ...game, category } : { ...game, noGenre: true };
       // Don't save over the game if it was edited or removed while Gemini was answering.
       const result = await store.set(key, JSON.stringify(categorized), {
         metadata: { title: game.title },
@@ -607,8 +677,9 @@ export default async (request, context) => {
     }
 
     if (request.method === 'POST') {
-      const game = cleanGame(body.game);
-      if (!game) return respond(request, 400, { error: 'Invalid game entry' });
+      const cleaned = cleanGame(body.game);
+      if (!cleaned) return respond(request, 400, { error: 'Invalid game entry' });
+      const game = withoutRemovedGenre(cleaned);
 
       const key = `${prefix}${game.id}`;
       const existing = await store.get(key, { type: 'json' });
@@ -617,9 +688,17 @@ export default async (request, context) => {
         if (blobs.length >= MAX_GAMES) return respond(request, 413, { error: 'Backlog is full' });
       }
       // A genre typed by hand wins. Otherwise, for the admin only, Gemini is asked once
-      // per game: once a game has a genre, edits (even renames) keep it.
-      game.category = game.category || existing?.category
-        || (session.isAdmin ? await categorizeGame(game) : '');
+      // per game: once a game has a genre (or Gemini found none), edits keep that.
+      const previous = existing && withoutRemovedGenre(existing);
+      if (!game.category && !game.noGenre && previous) {
+        game.category = previous.category || '';
+        if (previous.noGenre) game.noGenre = true;
+      }
+      if (!game.category && !game.noGenre && session.isAdmin) {
+        const category = await categorizeGame(game);
+        if (category) game.category = category;
+        else if (category === '') game.noGenre = true;
+      }
 
       await store.set(key, JSON.stringify(game), {
         metadata: { title: game.title }

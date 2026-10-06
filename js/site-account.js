@@ -125,6 +125,8 @@
     status = nextStatus;
     user = nextUser;
     applyColor();
+    // Viewing your own pages isn't viewing someone else's (see js/site-header.js).
+    if (user && isSameAccount(window.siteNav?.viewing, user.username)) window.siteNav.stopViewing();
     if (status === 'ready') {
       if (token && user) localStorage.setItem(USER_KEY, JSON.stringify({ token, user }));
       else localStorage.removeItem(USER_KEY);

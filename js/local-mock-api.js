@@ -140,8 +140,16 @@
 
   // Stands in for Gemini: picks a genre from the name, so the same name always gets
   // the same (made-up) genre. The real list is GAME_CATEGORIES in the Netlify function.
-  // Each pick counts as a call in the Stats page's Gemini usage.
-  const MOCK_CATEGORIES = ['Action', 'Action RPG', 'Adventure', 'Platformer', 'Puzzle', 'RPG', 'Shooter', 'Souls-Like'];
+  // Each pick counts as a call in the Stats page's Gemini usage. '' is Gemini answering
+  // one of the removed genres (Other, Simulation): no genre, and not asked again.
+  const MOCK_CATEGORIES = ['Action', 'Action RPG', 'Adventure', 'Platformer', 'Puzzle', 'RPG', 'Shooter', 'Souls-Like', ''];
+  const REMOVED_GENRES = ['Other', 'Simulation'];
+
+  // Mirrors withoutRemovedGenre in netlify/functions/backlog.mjs.
+  function withoutRemovedGenre(game) {
+    const removed = REMOVED_GENRES.some(genre => genre.toLowerCase() === game.category?.toLowerCase());
+    return removed ? { ...game, category: '', noGenre: true } : game;
+  }
   function mockCategory(title) {
     const usage = read(GEMINI_KEY, { days: {}, lastLimitedAt: null });
     const today = mockGeminiDay();
@@ -258,6 +266,16 @@
           } : {})
         });
       }
+      if (url.searchParams.has('users')) {
+        const usernames = Object.keys(read(ACCOUNTS_KEY, {}))
+          .sort((first, second) => first.localeCompare(second, undefined, { numeric: true, sensitivity: 'base' }));
+        return json(200, {
+          users: [ADMIN_USERNAME, ...usernames].map(username => ({
+            username: displayName(username),
+            isAdmin: username === ADMIN_USERNAME
+          }))
+        });
+      }
       if (url.searchParams.has('profile')) {
         const username = findAccount(url.searchParams.get('profile'));
         if (!username) return json(404, { error: 'There is no account with that name' });
@@ -265,7 +283,7 @@
       }
       const owner = url.searchParams.has('user') ? findAccount(url.searchParams.get('user')) : ADMIN_USERNAME;
       if (!owner) return json(404, { error: 'There is no account with that name' });
-      return json(200, { games: read(gamesKey(owner), []), owner: { username: displayName(owner) }, user });
+      return json(200, { games: read(gamesKey(owner), []).map(withoutRemovedGenre), owner: { username: displayName(owner) }, user });
     }
 
     const session = sessionUser(options.headers);
@@ -275,6 +293,21 @@
       if (!session.isAdmin) return json(403, { error: 'Only the admin can clear errors' });
       localStorage.setItem(ERRORS_KEY, '[]');
       return json(200, { cleared: true });
+    }
+
+    if (method === 'POST' && body?.action === 'delete-user') {
+      if (!session.isAdmin) return json(403, { error: 'Only the admin can delete accounts' });
+      const username = findAccount(body.username);
+      if (!username) return json(404, { error: 'There is no account with that name' });
+      if (username === ADMIN_USERNAME) return json(400, { error: 'The admin account cannot be deleted' });
+      const accounts = read(ACCOUNTS_KEY, {});
+      delete accounts[username];
+      localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
+      const settings = read(SETTINGS_KEY, {});
+      delete settings[username];
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+      localStorage.removeItem(gamesKey(username));
+      return json(200, { deleted: true });
     }
 
     if (method === 'POST' && body?.action === 'set-color') {
@@ -293,21 +326,34 @@
     if (method === 'POST' && body?.action === 'categorize') {
       if (!session.isAdmin) return json(403, { error: 'Automatic genres are only available to the admin' });
       if (!validId(body.id)) return json(400, { error: 'Invalid game id' });
-      const game = games.find(entry => entry.id === body.id);
-      if (game && !game.category) {
-        game.category = mockCategory(game.title);
+      const index = games.findIndex(entry => entry.id === body.id);
+      if (index === -1) return json(200, { game: null });
+      let game = withoutRemovedGenre(games[index]);
+      if (!game.category && !game.noGenre) {
+        const category = mockCategory(game.title);
+        game = category ? { ...game, category } : { ...game, noGenre: true };
+        games[index] = game;
         localStorage.setItem(key, JSON.stringify(games));
       }
-      return json(200, { game: game || null });
+      return json(200, { game });
     }
 
     if (method === 'POST') {
-      const game = cleanGame(body.game);
-      if (!game) return json(400, { error: 'Invalid game entry' });
+      const cleaned = cleanGame(body.game);
+      if (!cleaned) return json(400, { error: 'Invalid game entry' });
+      const game = withoutRemovedGenre(cleaned);
       const index = games.findIndex(entry => entry.id === game.id);
       if (index === -1 && games.length >= MAX_GAMES) return json(413, { error: 'Backlog is full' });
-      const existing = games[index];
-      game.category = game.category || existing?.category || (session.isAdmin ? mockCategory(game.title) : '');
+      const previous = games[index] && withoutRemovedGenre(games[index]);
+      if (!game.category && !game.noGenre && previous) {
+        game.category = previous.category || '';
+        if (previous.noGenre) game.noGenre = true;
+      }
+      if (!game.category && !game.noGenre && session.isAdmin) {
+        const category = mockCategory(game.title);
+        if (category) game.category = category;
+        else game.noGenre = true;
+      }
       if (index === -1) games.push(game);
       else games[index] = game;
       localStorage.setItem(key, JSON.stringify(games));
