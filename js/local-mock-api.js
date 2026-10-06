@@ -1,6 +1,7 @@
 // Local testing only: when the site is opened from localhost or file://, requests to
 // SITE_API_URL are answered in the browser instead of by the Netlify function, and
-// you start signed in as the admin account. Games and accounts live in localStorage.
+// you start signed in as the admin account. Games and accounts live in localStorage,
+// with a backlog for each account, like the real site.
 // Signing out behaves like the real site; sign in as "kiwamari" with any password to
 // become admin again. Add ?mock=off to the URL to use the real API (?mock=on to undo).
 (() => {
@@ -25,7 +26,7 @@
   const GEMINI_KEY = 'besaid-mock-gemini';
   const TOKEN_PREFIX = 'local-mock.';
   const ADMIN_USERNAME = 'kiwamari';
-  const MAX_GAMES = 500;
+  const MAX_GAMES = 500; // per backlog
 
   function read(key, fallback) {
     try {
@@ -49,10 +50,25 @@
     localStorage.setItem(SEEDED_KEY, '1');
   }
 
+  function displayName(username) {
+    return username === ADMIN_USERNAME ? 'Kiwamari' : username;
+  }
+
   function publicUser(username) {
-    return username === ADMIN_USERNAME
-      ? { username: 'Kiwamari', canEdit: true }
-      : { username, canEdit: false };
+    return { username: displayName(username), isAdmin: username === ADMIN_USERNAME };
+  }
+
+  // The admin's games keep the original key, so an existing local backlog stays the
+  // admin's; every other account gets its own.
+  function gamesKey(username) {
+    return username === ADMIN_USERNAME ? GAMES_KEY : `${GAMES_KEY}:${username}`;
+  }
+
+  // The account a ?user= or ?profile= link names (lower-case), or null.
+  function findAccount(name) {
+    const username = String(name || '').trim().toLowerCase();
+    if (username === ADMIN_USERNAME) return username;
+    return username && read(ACCOUNTS_KEY, {})[username] ? username : null;
   }
 
   function sessionUser(headers) {
@@ -65,7 +81,7 @@
       return null;
     }
     if (username !== ADMIN_USERNAME && !read(ACCOUNTS_KEY, {})[username]) return null;
-    return publicUser(username);
+    return { ...publicUser(username), account: username };
   }
 
   function validId(id) {
@@ -124,7 +140,6 @@
         return json(500, { error: 'Backlog storage is unavailable' });
       }
     }
-    const games = read(GAMES_KEY, []);
 
     if (method === 'POST' && body?.action === 'view') {
       if (typeof body.page !== 'string' || !/^[a-zA-Z0-9_-]{1,80}\.html$/.test(body.page)) {
@@ -180,7 +195,8 @@
     }
 
     if (method === 'GET') {
-      const user = sessionUser(options.headers);
+      const session = sessionUser(options.headers);
+      const user = session && publicUser(session.account);
       if (url.searchParams.has('session')) return json(200, { user });
       if (url.searchParams.has('whoami')) {
         return json(200, {
@@ -196,7 +212,7 @@
         return json(200, {
           views: read(VIEWS_KEY, { totals: {}, days: {} }),
           accounts: Object.keys(read(ACCOUNTS_KEY, {})).length + 1,
-          ...(user?.canEdit ? {
+          ...(user?.isAdmin ? {
             errors: read(ERRORS_KEY, []),
             gemini: {
               ...read(GEMINI_KEY, { days: {}, lastLimitedAt: null }),
@@ -207,24 +223,36 @@
           } : {})
         });
       }
-      return json(200, { games, user });
+      if (url.searchParams.has('profile')) {
+        const username = findAccount(url.searchParams.get('profile'));
+        if (!username) return json(404, { error: 'There is no account with that name' });
+        return json(200, { profile: { username: displayName(username) } });
+      }
+      const owner = url.searchParams.has('user') ? findAccount(url.searchParams.get('user')) : ADMIN_USERNAME;
+      if (!owner) return json(404, { error: 'There is no account with that name' });
+      return json(200, { games: read(gamesKey(owner), []), owner: { username: displayName(owner) }, user });
     }
 
-    const user = sessionUser(options.headers);
-    if (!user) return json(401, { error: 'Please sign in again' });
-    if (!user.canEdit) return json(403, { error: 'Only admins can edit the backlog' });
+    const session = sessionUser(options.headers);
+    if (!session) return json(401, { error: 'Please sign in again' });
 
     if (method === 'POST' && body?.action === 'clear-errors') {
+      if (!session.isAdmin) return json(403, { error: 'Only the admin can clear errors' });
       localStorage.setItem(ERRORS_KEY, '[]');
       return json(200, { cleared: true });
     }
 
+    // Changes only ever go to the signed-in account's own backlog.
+    const key = gamesKey(session.account);
+    const games = read(key, []);
+
     if (method === 'POST' && body?.action === 'categorize') {
+      if (!session.isAdmin) return json(403, { error: 'Automatic genres are only available to the admin' });
       if (!validId(body.id)) return json(400, { error: 'Invalid game id' });
       const game = games.find(entry => entry.id === body.id);
       if (game && !game.category) {
         game.category = mockCategory(game.title);
-        localStorage.setItem(GAMES_KEY, JSON.stringify(games));
+        localStorage.setItem(key, JSON.stringify(games));
       }
       return json(200, { game: game || null });
     }
@@ -235,16 +263,16 @@
       const index = games.findIndex(entry => entry.id === game.id);
       if (index === -1 && games.length >= MAX_GAMES) return json(413, { error: 'Backlog is full' });
       const existing = games[index];
-      game.category = game.category || existing?.category || mockCategory(game.title);
+      game.category = game.category || existing?.category || (session.isAdmin ? mockCategory(game.title) : '');
       if (index === -1) games.push(game);
       else games[index] = game;
-      localStorage.setItem(GAMES_KEY, JSON.stringify(games));
+      localStorage.setItem(key, JSON.stringify(games));
       return json(201, { game });
     }
 
     if (method === 'DELETE') {
       if (!validId(body.id)) return json(400, { error: 'Invalid game id' });
-      localStorage.setItem(GAMES_KEY, JSON.stringify(games.filter(entry => entry.id !== body.id)));
+      localStorage.setItem(key, JSON.stringify(games.filter(entry => entry.id !== body.id)));
       return json(200, { deleted: true });
     }
 

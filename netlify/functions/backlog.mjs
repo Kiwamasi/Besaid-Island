@@ -6,9 +6,12 @@ const STORE_NAME = 'public-game-backlog';
 const ACCOUNT_STORE_NAME = 'backlog-accounts';
 const KEY_PREFIX = 'game-';
 const ACCOUNT_KEY_PREFIX = 'user-';
-const MAX_GAMES = 500;
+const MAX_GAMES = 500; // per backlog
 const MAX_ACCOUNTS = 1000;
+// The one admin account (password in the environment). Only the admin's games get
+// genres from Gemini, and only the admin sees errors and Gemini usage on the Stats page.
 const ADMIN_USERNAME = 'kiwamari';
+const ADMIN_DISPLAY_NAME = 'Kiwamari';
 // Page views and client/server errors shown on the About (stats) page.
 const STATS_STORE_NAME = 'site-stats';
 const VIEWS_KEY = 'views';
@@ -104,7 +107,7 @@ function getSession(request) {
     if (typeof session.sub !== 'string') return null;
     if (session.exp && session.exp <= Math.floor(Date.now() / 1000)) return null;
     const username = normalizeUsername(session.sub);
-    return { username, canEdit: username === ADMIN_USERNAME };
+    return { username, isAdmin: username === ADMIN_USERNAME };
   } catch {
     return null;
   }
@@ -121,6 +124,43 @@ function validUsername(username) {
 function accountKey(username) {
   if (/^[a-zA-Z0-9_-]{3,24}$/.test(username)) return `${ACCOUNT_KEY_PREFIX}${username}`;
   return `${ACCOUNT_KEY_PREFIX}~${Buffer.from(username, 'utf8').toString('base64url')}`;
+}
+
+function accountsStore() {
+  return getStore({ name: ACCOUNT_STORE_NAME, consistency: 'strong' });
+}
+
+function displayName(username) {
+  return username === ADMIN_USERNAME ? ADMIN_DISPLAY_NAME : username;
+}
+
+// What the pages are told about the signed-in person.
+function publicUser(username) {
+  return { username: displayName(username), isAdmin: username === ADMIN_USERNAME };
+}
+
+// Every account has its own backlog. The admin's games keep the keys they had before
+// there were several backlogs ("game-<id>"); everyone else's are filed under their
+// account ("user/<name>/game-<id>"), so each backlog can be listed on its own.
+function backlogPrefix(username) {
+  if (username === ADMIN_USERNAME) return KEY_PREFIX;
+  return `user/${accountKey(username).slice(ACCOUNT_KEY_PREFIX.length)}/${KEY_PREFIX}`;
+}
+
+// The account a ?user= or ?profile= link names, as its stored (lower-case) username,
+// or null if there's no such account.
+async function findAccount(name) {
+  const username = normalizeUsername(name);
+  if (username === ADMIN_USERNAME) return username;
+  if (!validUsername(username)) return null;
+  const saved = await accountsStore().get(accountKey(username), { type: 'json' });
+  return saved ? username : null;
+}
+
+async function listGames(store, username) {
+  const { blobs } = await store.list({ prefix: backlogPrefix(username) });
+  const games = await Promise.all(blobs.map(({ key }) => store.get(key, { type: 'json' })));
+  return games.filter(Boolean);
 }
 
 async function hashPassword(password, salt = randomBytes(16).toString('hex')) {
@@ -149,7 +189,7 @@ function cleanGame(game) {
     title,
     platform: typeof game.platform === 'string' ? game.platform.trim().slice(0, 60) : '',
     note: typeof game.note === 'string' ? game.note.trim().slice(0, 240) : '',
-    // Set by hand by the admin ("(RPG)" at the end of a note). Empty asks Gemini.
+    // Set by hand ("(RPG)" at the end of a note). Empty asks Gemini, for the admin only.
     category: typeof game.category === 'string' ? game.category.trim().slice(0, MAX_CATEGORY_LENGTH) : '',
     createdAt: Number.isFinite(game.createdAt) ? game.createdAt : Date.now()
   };
@@ -344,18 +384,18 @@ async function recordError(report) {
 
 async function readStats(session) {
   const store = statsStore();
-  const accounts = getStore({ name: ACCOUNT_STORE_NAME, consistency: 'strong' });
+  const accounts = accountsStore();
   const [views, { blobs }, errors, gemini] = await Promise.all([
     store.get(VIEWS_KEY, { type: 'json' }),
     accounts.list({ prefix: ACCOUNT_KEY_PREFIX }),
-    session?.canEdit ? store.get(ERRORS_KEY, { type: 'json' }) : null,
-    session?.canEdit ? store.get(GEMINI_USAGE_KEY, { type: 'json' }) : null
+    session?.isAdmin ? store.get(ERRORS_KEY, { type: 'json' }) : null,
+    session?.isAdmin ? store.get(GEMINI_USAGE_KEY, { type: 'json' }) : null
   ]);
   return {
     views: views || { totals: {}, days: {} },
     // The admin account lives in the environment, not in the store.
     accounts: blobs.length + 1,
-    ...(session?.canEdit ? {
+    ...(session?.isAdmin ? {
       errors: errors || [],
       gemini: {
         ...(gemini || { days: {}, lastLimitedAt: null }),
@@ -401,15 +441,15 @@ export default async (request, context) => {
         return respond(request, 400, { error: 'Password must be 1–128 characters' });
       }
 
-      let account;
+      let accountName;
       if (username === ADMIN_USERNAME) {
         if (body.action === 'register') return respond(request, 409, { error: 'That username is reserved' });
         if (!safeEqual(password, process.env.BACKLOG_PASSWORD)) {
           return respond(request, 401, { error: 'Incorrect username or password' });
         }
-        account = { username: ADMIN_USERNAME, canEdit: true };
+        accountName = ADMIN_USERNAME;
       } else {
-        const accounts = getStore({ name: ACCOUNT_STORE_NAME, consistency: 'strong' });
+        const accounts = accountsStore();
         const key = accountKey(username);
 
         if (body.action === 'register') {
@@ -423,39 +463,34 @@ export default async (request, context) => {
             onlyIfNew: true
           });
           if (!created.modified) return respond(request, 409, { error: 'That username is already taken' });
-          account = { username, canEdit: false };
+          accountName = username;
         } else {
           const savedAccount = await accounts.get(key, { type: 'json' });
           if (!savedAccount) return respond(request, 404, { error: 'Account does not exist' });
           if (!await verifyPassword(password, savedAccount)) return respond(request, 401, { error: 'Password is incorrect' });
-          account = { username: savedAccount.username, canEdit: false };
+          accountName = savedAccount.username;
         }
       }
 
       return respond(request, 200, {
-        token: createSession(account.username),
-        user: {
-          username: account.canEdit ? 'Kiwamari' : account.username,
-          canEdit: account.canEdit
-        }
+        token: createSession(accountName),
+        user: publicUser(accountName)
       });
     }
 
     if (request.method === 'GET') {
+      const params = new URL(request.url).searchParams;
       const session = getSession(request);
-      const user = session ? {
-        username: session.canEdit ? 'Kiwamari' : session.username,
-        canEdit: session.canEdit
-      } : null;
-      if (new URL(request.url).searchParams.has('session')) {
+      const user = session ? publicUser(session.username) : null;
+      if (params.has('session')) {
         return respond(request, 200, { user });
       }
       // Errors are only included for the admin.
-      if (new URL(request.url).searchParams.has('stats')) {
+      if (params.has('stats')) {
         return respond(request, 200, await readStats(session));
       }
       // The visitor's own IP and rough location, from Netlify. Not stored.
-      if (new URL(request.url).searchParams.has('whoami')) {
+      if (params.has('whoami')) {
         const geo = context?.geo || {};
         return respond(request, 200, {
           ip: context?.ip || request.headers.get('x-nf-client-connection-ip') || null,
@@ -467,31 +502,45 @@ export default async (request, context) => {
         });
       }
 
+      // ?profile=name: whether that account exists, and its name as shown.
+      if (params.has('profile')) {
+        const username = await findAccount(params.get('profile'));
+        if (!username) return respond(request, 404, { error: 'There is no account with that name' });
+        return respond(request, 200, { profile: { username: displayName(username) } });
+      }
+
+      // ?user=name lists that person's backlog. Without it, the admin's, which is
+      // what visitors see by default and what the Stats page counts.
+      const owner = params.has('user') ? await findAccount(params.get('user')) : ADMIN_USERNAME;
+      if (!owner) return respond(request, 404, { error: 'There is no account with that name' });
       const store = getStore({ name: STORE_NAME, consistency: 'strong' });
-      const { blobs } = await store.list({ prefix: KEY_PREFIX });
-      const games = await Promise.all(blobs.map(async ({ key }) =>
-        store.get(key, { type: 'json' })
-      ));
-      return respond(request, 200, { games: games.filter(Boolean), user });
+      return respond(request, 200, {
+        games: await listGames(store, owner),
+        owner: { username: displayName(owner) },
+        user
+      });
     }
 
     if (!secretsConfigured()) return respond(request, 503, { error: 'Login is not configured yet' });
     const session = getSession(request);
     if (!session) return respond(request, 401, { error: 'Please sign in again' });
-    if (!session.canEdit) return respond(request, 403, { error: 'Only admins can edit the backlog' });
-
-    const store = getStore({ name: STORE_NAME, consistency: 'strong' });
 
     if (request.method === 'POST' && body?.action === 'clear-errors') {
+      if (!session.isAdmin) return respond(request, 403, { error: 'Only the admin can clear errors' });
       await statsStore().setJSON(ERRORS_KEY, []);
       return respond(request, 200, { cleared: true });
     }
 
-    // Sent by js/backlog.js, one game at a time and spaced out, for games that
-    // have no genre yet (added before genres existed, or while Gemini was down).
+    // Everything below changes the signed-in person's own backlog, never anyone else's.
+    const store = getStore({ name: STORE_NAME, consistency: 'strong' });
+    const prefix = backlogPrefix(session.username);
+
+    // Sent by js/backlog.js, one game at a time and spaced out, for the admin's games
+    // that have no genre yet (added before genres existed, or while Gemini was down).
     if (request.method === 'POST' && body?.action === 'categorize') {
+      if (!session.isAdmin) return respond(request, 403, { error: 'Automatic genres are only available to the admin' });
       if (!validId(body.id)) return respond(request, 400, { error: 'Invalid game id' });
-      const key = `${KEY_PREFIX}${body.id}`;
+      const key = `${prefix}${body.id}`;
       const saved = await store.getWithMetadata(key, { type: 'json' });
       const game = saved?.data;
       if (!game || game.category) return respond(request, 200, { game: game || null });
@@ -510,15 +559,16 @@ export default async (request, context) => {
       const game = cleanGame(body.game);
       if (!game) return respond(request, 400, { error: 'Invalid game entry' });
 
-      const key = `${KEY_PREFIX}${game.id}`;
+      const key = `${prefix}${game.id}`;
       const existing = await store.get(key, { type: 'json' });
       if (!existing) {
-        const { blobs } = await store.list({ prefix: KEY_PREFIX });
+        const { blobs } = await store.list({ prefix });
         if (blobs.length >= MAX_GAMES) return respond(request, 413, { error: 'Backlog is full' });
       }
-      // A genre typed by the admin wins. Otherwise Gemini is asked only once per game:
-      // once a game has a genre, edits (even renames) keep it.
-      game.category = game.category || existing?.category || await categorizeGame(game);
+      // A genre typed by hand wins. Otherwise, for the admin only, Gemini is asked once
+      // per game: once a game has a genre, edits (even renames) keep it.
+      game.category = game.category || existing?.category
+        || (session.isAdmin ? await categorizeGame(game) : '');
 
       await store.set(key, JSON.stringify(game), {
         metadata: { title: game.title }
@@ -529,7 +579,7 @@ export default async (request, context) => {
     if (request.method === 'DELETE') {
       if (!validId(body.id)) return respond(request, 400, { error: 'Invalid game id' });
 
-      await store.delete(`${KEY_PREFIX}${body.id}`);
+      await store.delete(`${prefix}${body.id}`);
       return respond(request, 200, { deleted: true });
     }
 
@@ -543,12 +593,11 @@ export default async (request, context) => {
     }
     if (pendingRegistration) {
       try {
-        const accounts = getStore({ name: ACCOUNT_STORE_NAME, consistency: 'strong' });
-        const savedAccount = await accounts.get(pendingRegistration.key, { type: 'json' });
+        const savedAccount = await accountsStore().get(pendingRegistration.key, { type: 'json' });
         if (await verifyPassword(pendingRegistration.password, savedAccount)) {
           return respond(request, 200, {
             token: createSession(pendingRegistration.username),
-            user: { username: pendingRegistration.username, canEdit: false }
+            user: publicUser(pendingRegistration.username)
           });
         }
       } catch (recoveryError) {

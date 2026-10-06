@@ -23,7 +23,7 @@
 
 .backlog-heading h1 {
   color: var(--site-ink);
-  font-family: 'Marcellus', Georgia, serif;
+  font-family: 'IBM Plex Sans', Arial, sans-serif;
   font-size: 1.8rem;
   font-weight: 400;
   line-height: 1.15;
@@ -39,7 +39,7 @@
 }
 
 .search-field input {
-  width: min(15rem, 28vw);
+  width: min(10.5rem, 20vw);
   border: 1px solid var(--site-line);
   border-radius: 3px;
   padding: 0.45rem 0.6rem;
@@ -53,12 +53,12 @@
   color: var(--site-placeholder);
 }
 
-/* Genre buttons next to the search box; the one that's on is filled in gold. */
+/* Genre buttons next to the search box; the one that's on is filled in the trim colour. */
 .genre-filters {
   display: flex;
   flex: 1;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 0.35rem;
 }
 
@@ -69,11 +69,11 @@
 .genre-chip {
   border: 1px solid var(--site-line-strong);
   border-radius: 999px;
-  padding: 0.2rem 0.65rem;
+  padding: 0.2rem 0.45rem 0.2rem 0.65rem;
   background: transparent;
   color: var(--site-muted);
   font-family: 'IBM Plex Sans', Arial, sans-serif;
-  font-size: 0.75rem;
+  font-size: 0.6875rem;
   font-weight: 500;
   cursor: pointer;
   transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
@@ -305,7 +305,7 @@
 /* A game being typed in: the same shape as a game, with a name and a note box. */
 .game-draft {
   position: relative;
-  background: rgba(209, 183, 123, 0.07);
+  background: color-mix(in srgb, var(--trim-color) 7%, transparent);
   box-shadow: inset 0 0 0 1px var(--site-accent);
 }
 
@@ -418,7 +418,6 @@
   .backlog-heading { align-items: flex-start; flex-direction: column; gap: 1.25rem; }
   .backlog-controls { align-items: stretch; flex-direction: column; }
   .search-field input { width: 100%; }
-  .genre-filters { justify-content: flex-start; }
   .game-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 

@@ -1,0 +1,35 @@
+/* Profile page. Shared colours come from css/site.css. */
+
+.profile-main {
+  padding: 1.5rem 2rem 3rem;
+}
+
+.profile-shell {
+  width: min(100%, 1300px);
+  margin: 0 auto;
+}
+
+.profile-title {
+  padding: 0.6rem 0 1rem;
+  border-bottom: 1px solid var(--site-line);
+  color: var(--site-ink);
+  font-family: 'IBM Plex Sans', Arial, sans-serif;
+  font-size: 1.8rem;
+  font-weight: 400;
+  line-height: 1.15;
+}
+
+.profile-note {
+  padding-top: 0.8rem;
+  color: var(--site-muted);
+  font-family: 'IBM Plex Sans', Arial, sans-serif;
+  font-size: 0.85rem;
+}
+
+.profile-note:empty {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .profile-main { padding: 1.25rem 1rem 2rem; }
+}

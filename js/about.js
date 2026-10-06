@@ -373,7 +373,7 @@ function renderGemini(gemini) {
 let statsLoadedAsAdmin = null;
 
 async function loadSiteStats() {
-  statsLoadedAsAdmin = Boolean(account.user?.canEdit);
+  statsLoadedAsAdmin = Boolean(account.user?.isAdmin);
   try {
     const stats = await account.request('GET', null, '?stats=1');
     renderViews(stats.views);
@@ -476,7 +476,7 @@ $('clearErrors').addEventListener('click', async () => {
 
 // Errors and Gemini usage are admin-only, so reload when someone signs in or out as admin.
 document.addEventListener('site-account-change', () => {
-  if (account.status === 'ready' && Boolean(account.user?.canEdit) !== statsLoadedAsAdmin) loadSiteStats();
+  if (account.status === 'ready' && Boolean(account.user?.isAdmin) !== statsLoadedAsAdmin) loadSiteStats();
 });
 
 checkApi();

@@ -3,17 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Besaid Island</title>
+  <meta name="theme-color" content="#1d201e">
+  <title>Profile | Besaid Island</title>
   <link rel="icon" href="assets/favicon.ico" type="image/x-icon">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Marcellus&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/base.css">
   <link rel="stylesheet" href="css/site.css">
-  <link rel="stylesheet" href="css/home.css">
+  <link rel="stylesheet" href="css/profile.css">
 </head>
 <body>
-
   <header class="site-header"></header>
   <script src="js/site-header.js"></script>
   <script src="js/site-config.js"></script>
@@ -21,18 +21,13 @@
   <script src="js/site-account.js"></script>
   <script src="js/site-telemetry.js"></script>
 
-  <main>
-    <section class="game-index">
-      <a class="game-card" href="dark_cloud_2_idea_book.html" aria-label="Open the Dark Cloud 2 idea book guide">
-        <div class="game-card__art"></div>
-        <div class="game-card__content">
-          <p class="game-card__eyebrow">PlayStation 2</p>
-          <h2>Dark Cloud 2</h2>
-        </div>
-      </a>
-    </section>
+  <main class="profile-main">
+    <div class="profile-shell">
+      <h1 class="profile-title" id="profileTitle">Profile</h1>
+      <p class="profile-note" id="profileNote" role="status">Loading profile…</p>
+    </div>
   </main>
 
-  <script src="js/home.js"></script>
+  <script src="js/profile.js"></script>
 </body>
 </html>

@@ -6,6 +6,7 @@
   const NAV_LINKS = [
     { href: 'index.html', label: 'Home' },
     { href: 'backlog.html', label: 'Backlog' },
+    { href: 'profile.html', label: 'Profile' },
     { href: 'about.html', label: 'Stats' }
   ];
 

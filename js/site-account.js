@@ -4,9 +4,11 @@
 // Load after js/site-header.js, js/site-config.js and js/local-mock-api.js.
 // Pages that care who is signed in use window.siteAccount:
 //   siteAccount.status   'checking' | 'ready' | 'unavailable'
-//   siteAccount.user     { username, canEdit } or null
+//   siteAccount.user     { username, isAdmin } or null
 //   siteAccount.request(method, body)   call the API with the session token
 //   siteAccount.signOut()
+//   siteAccount.pageOwner()   whose backlog/profile the page shows (see below)
+//   siteAccount.showOwnerInAddress(name), siteAccount.isSameAccount(a, b)
 // and listen for the 'site-account-change' event on document.
 (() => {
   const SESSION_KEY = 'besaid-backlog-session';
@@ -57,6 +59,35 @@
     return result;
   }
 
+  // ---------- Whose page this is ----------
+
+  // Backlog and profile pages belong to one account. A ?user= in the link picks it;
+  // otherwise it's whoever is signed in, and Kiwamari's for visitors.
+  const DEFAULT_OWNER = 'Kiwamari';
+  const linkedUser = (new URLSearchParams(window.location.search).get('user') || '').trim();
+
+  // null while the sign-in is still being checked, as the answer may change.
+  function pageOwner() {
+    if (linkedUser) return linkedUser;
+    if (status === 'checking') return null;
+    return user?.username || DEFAULT_OWNER;
+  }
+
+  // When the page shows the signed-in person's own backlog or profile, put their name
+  // in the address so it can be copied and shared. A link that named someone is left
+  // as it was.
+  function showOwnerInAddress(ownerName) {
+    if (linkedUser) return;
+    const url = new URL(window.location.href);
+    if (user && ownerName) url.searchParams.set('user', ownerName);
+    else url.searchParams.delete('user');
+    history.replaceState(history.state, '', url);
+  }
+
+  function isSameAccount(first, second) {
+    return Boolean(first && second) && first.trim().toLowerCase() === second.trim().toLowerCase();
+  }
+
   // ---------- Session state ----------
 
   function setToken(nextToken) {
@@ -92,7 +123,7 @@
     accountName.hidden = status === 'ready' && !user;
     if (status === 'checking') accountName.textContent = 'Checking account…';
     else if (status === 'unavailable') accountName.textContent = 'Account status unavailable';
-    else accountName.textContent = user ? `${user.username}${user.canEdit ? ' | Admin' : ''} |` : '';
+    else accountName.textContent = user ? `${user.username}${user.isAdmin ? ' | Admin' : ''} |` : '';
   }
 
   async function checkSession() {
@@ -182,7 +213,7 @@
     submitButton.type = 'submit';
     submitButton.textContent = mode === 'login' ? 'Sign in' : 'Create account';
     form.elements.password.autocomplete = mode === 'login' ? 'current-password' : 'new-password';
-    showMessage(mode === 'register' ? 'Accounts can view the shared list. Only admins can edit it.' : '');
+    showMessage(mode === 'register' ? 'Your account gets its own backlog and profile, with links you can share.' : '');
   }
 
   function openDialog() {
@@ -232,7 +263,7 @@
       if (registering) {
         modes.hidden = true;
         fields.forEach(field => { field.hidden = true; });
-        showMessage('Account created successfully. You are signed in with view-only access; only admins can edit the shared backlog.', 'success');
+        showMessage('Account created. You are signed in, and your backlog is ready to fill in.', 'success');
         submitButton.type = 'button';
         submitButton.textContent = 'Done';
       } else {
@@ -276,7 +307,10 @@
     get status() { return status; },
     get user() { return user; },
     request,
-    signOut
+    signOut,
+    pageOwner,
+    showOwnerInAddress,
+    isSameAccount
   };
 
   checkSession();

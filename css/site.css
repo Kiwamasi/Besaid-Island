@@ -4,6 +4,10 @@
    .site-nav, .site-account or .site-dialog, so they look identical everywhere. */
 
 :root {
+  /* The site's trim colour: hovers, highlights, bars, the selected genre and accent text.
+     Change it here and everything that uses it follows, on every page. */
+  --trim-color: #63d479;
+
   /* Theme colours. */
   --site-bg: #292c2a;
   --site-header-bg: #1d201e;
@@ -13,12 +17,12 @@
   --site-placeholder: #8e9188;
   --site-line: rgba(225, 222, 207, 0.18);
   --site-line-strong: rgba(225, 222, 207, 0.24);
-  --site-accent: #d1b77b;
-  --site-accent-hover: #e4d3a7;
+  --site-accent: var(--trim-color);
+  --site-accent-hover: color-mix(in srgb, var(--trim-color) 70%, #fff);
   --site-on-accent: #24251f;
-  --site-focus: #e3ca91;
+  --site-focus: color-mix(in srgb, var(--trim-color) 85%, #fff);
   --site-nav-link: #fff;
-  --site-nav-hover: #d1c9b5;
+  --site-nav-hover: var(--trim-color);
 
   /* Header height, also used by css/base.css to size the page below it. */
   --site-header-height: 54px;
@@ -76,7 +80,7 @@ html {
 
 .site-header .site-nav a {
   color: var(--site-nav-link);
-  font-family: 'Marcellus', Georgia, serif;
+  font-family: 'IBM Plex Sans', Arial, sans-serif;
   font-size: 1.2rem;
   text-decoration: none;
   white-space: nowrap;

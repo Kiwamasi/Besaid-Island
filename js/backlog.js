@@ -1,12 +1,17 @@
 // Backlog page: loads, filters, adds, edits and removes games. Who is signed in
-// (and whether they can edit) comes from the shared js/site-account.js.
+// comes from the shared js/site-account.js.
 //
-// Each game's genre ("RPG", "Shooter"…) is picked by the server when it's saved,
-// and shown after its note in brackets: "Replaying on hard (RPG)", or just "(RPG)".
+// Every account has its own backlog, at backlog.html?user=<name>. Without a name the
+// page shows the signed-in person's own backlog (and puts their name in the address),
+// or Kiwamari's for visitors. Only the owner can change a backlog.
+//
+// Each game's genre ("RPG", "Shooter"…) is picked by the server when it's saved
+// (Gemini, for the admin only; anyone can type one in brackets), and shown after
+// its note in brackets: "Replaying on hard (RPG)", or just "(RPG)".
 // The genre buttons next to the search box show only that genre's games; the rest
 // pop out, and pop back in when the filter is cleared.
 //
-// Admins edit inline with a "slot": a game-shaped box with a name and a note field.
+// The owner edits inline with a "slot": a game-shaped box with a name and a note field.
 // - The green "+" at the end of each section opens an empty slot to add a game.
 // - The pen on a game turns it into a slot filled in with its name and note.
 // Pressing Enter, or moving focus out of the slot, saves it. Escape cancels, and
@@ -18,6 +23,7 @@ const emptyTitle = document.getElementById('emptyTitle');
 const searchInput = document.getElementById('searchInput');
 const genreFilters = document.getElementById('genreFilters');
 const saveNote = document.getElementById('saveNote');
+const pageTitle = document.getElementById('page-title');
 const SYSTEM_ORDER = ['PS5', 'PS3', 'Misc'];
 // Games are listed alphabetically within each section. Numeric so "Final Fantasy 9"
 // comes before "Final Fantasy 10"; case-insensitive.
@@ -56,7 +62,12 @@ const PEN_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M11.3 1.6
 let games = [];
 let gamesLoaded = false;
 let apiReady = false;
-let previousUser = account.user;
+// The name asked for (from the link or the sign-in), and the backlog's owner as the
+// server shows it ("Kiwamari"), once loaded. null if there's no such account.
+let requestedOwner = null;
+let owner = null;
+// Bumped for each load, so a slow answer for someone else's backlog is ignored.
+let loadVersion = 0;
 // The open slot, if any: { mode: 'add' | 'edit', system, gameId, title, note, focus, closing }.
 let draft = null;
 // The genre button that's on, or '' for all games.
@@ -79,8 +90,9 @@ const POP_SWAP = [
   { opacity: 1, transform: 'scale(1)' }
 ];
 
+// Only the owner can change a backlog.
 function canEdit() {
-  return Boolean(account.user?.canEdit);
+  return account.isSameAccount(account.user?.username, owner);
 }
 
 function createElement(tag, className, text) {
@@ -150,7 +162,7 @@ function render({ fadeIn = true } = {}) {
   const visibleGames = games.filter(game => matchesGenre(game)
     && `${game.title} ${game.platform} ${game.category || ''} ${game.note}`.toLocaleLowerCase().includes(query)
   );
-  // Admins always see every section (even empty ones) so they can add to it.
+  // The owner always sees every section (even empty ones) so they can add to it.
   const editing = canEdit() && apiReady;
   const showSections = visibleGames.length > 0 || (editing && !query && !genreFilter);
 
@@ -238,32 +250,58 @@ function systemForGame(game) {
 }
 
 function showAccountNote() {
-  if (!apiReady) return;
+  if (!apiReady || !owner) return;
   const { status, user } = account;
-  if (status === 'checking') saveNote.textContent = 'Shared backlog · checking account…';
-  else if (status === 'unavailable') saveNote.textContent = 'Shared backlog · account status unavailable';
-  else if (!user) saveNote.textContent = 'Shared backlog · sign in to edit';
-  else if (user.canEdit) saveNote.textContent = 'Signed in as admin · edits are shared';
-  else saveNote.textContent = `Signed in as ${user.username} · view only`;
+  if (canEdit()) saveNote.textContent = 'Your backlog · changes are saved for everyone to see';
+  else if (status === 'checking') saveNote.textContent = `${owner}'s backlog · checking account…`;
+  else if (status === 'unavailable') saveNote.textContent = `${owner}'s backlog · account status unavailable`;
+  else if (!user) saveNote.textContent = `${owner}'s backlog · sign in or create an account to make your own`;
+  else saveNote.textContent = `${owner}'s backlog · view only`;
+}
+
+// The heading names the backlog's owner: "Kiwamari's Backlog".
+function showPageTitle() {
+  pageTitle.textContent = owner ? `${owner}'s Backlog` : 'Backlog';
 }
 
 function signInExpired() {
   account.signOut();
-  saveNote.textContent = 'Sign-in expired. The backlog is still viewable; sign in again to edit.';
+  saveNote.textContent = 'Sign-in expired. Sign in again to edit your backlog.';
 }
 
-async function loadGames() {
-  saveNote.textContent = 'Connecting to shared backlog…';
+// Loads the backlog the page should show, if that's changed: on opening the page,
+// and when someone signs in or out of a page with no ?user= in its link.
+async function loadGamesFor(name) {
+  if (!name || account.isSameAccount(name, requestedOwner)) return;
+  const version = ++loadVersion;
+  requestedOwner = name;
+  owner = null;
+  games = [];
+  gamesLoaded = false;
+  apiReady = false;
+  draft = null;
+  genreFilter = '';
+  showPageTitle();
+  render();
+  saveNote.textContent = 'Loading backlog…';
   try {
-    const result = await account.request('GET');
+    const result = await account.request('GET', null, `?user=${encodeURIComponent(name)}`);
+    if (version !== loadVersion) return;
+    owner = result.owner.username;
     games = Array.isArray(result.games) ? result.games : [];
     gamesLoaded = true;
     apiReady = true;
+    account.showOwnerInAddress(owner);
     showAccountNote();
   } catch (error) {
-    apiReady = false;
-    saveNote.textContent = `Shared backlog unavailable: ${error.message}`;
+    if (version !== loadVersion) return;
+    // Let the next sign-in change try again.
+    requestedOwner = null;
+    saveNote.textContent = error.status === 404
+      ? `There's no account called "${name}".`
+      : `Backlog unavailable: ${error.message}`;
   }
+  showPageTitle();
   render();
   fillMissingCategories();
 }
@@ -273,7 +311,8 @@ async function loadGames() {
 // Stops at the first one Google doesn't answer; the next visit tries again.
 async function fillMissingCategories() {
   for (;;) {
-    const game = canEdit() && apiReady && games.find(entry => !entry.category);
+    // Gemini genres are for the admin's own backlog only.
+    const game = canEdit() && account.user?.isAdmin && apiReady && games.find(entry => !entry.category);
     if (!game) return;
     let result;
     try {
@@ -360,7 +399,7 @@ async function removeGame(gameId) {
   renderAndSlide();
   try {
     await saving;
-    saveNote.textContent = 'Shared backlog saved';
+    saveNote.textContent = 'Backlog saved';
   } catch (error) {
     games.splice(Math.max(previousIndex, 0), 0, game);
     if (error.status === 401) {
@@ -570,7 +609,7 @@ function saveNewGame({ refocus }) {
     id: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`,
     title: cleanTitle(closing.title),
     platform: closing.system,
-    // A genre typed in brackets is kept; otherwise the server asks Gemini.
+    // A genre typed in brackets is kept; otherwise the server asks Gemini (admin only).
     ...splitNote(closing.note),
     createdAt: Date.now()
   };
@@ -589,7 +628,7 @@ function saveNewGame({ refocus }) {
     .then(result => {
       games = games.map(entry => entry.id === game.id ? result.game : entry);
       if (result.game.category) showCategory(result.game);
-      saveNote.textContent = 'Shared backlog saved';
+      saveNote.textContent = 'Backlog saved';
     })
     .catch(error => {
       games = games.filter(entry => entry.id !== game.id);
@@ -634,7 +673,7 @@ function saveEdit({ refocus }) {
     .then(result => {
       games = games.map(entry => entry.id === original.id ? result.game : entry);
       if (result.game.category !== original.category) showCategory(result.game);
-      saveNote.textContent = 'Shared backlog saved';
+      saveNote.textContent = 'Backlog saved';
     })
     .catch(error => {
       games = games.map(entry => entry.id === original.id ? original : entry);
@@ -652,13 +691,13 @@ function saveEdit({ refocus }) {
 searchInput.addEventListener('input', () => render());
 
 document.addEventListener('site-account-change', () => {
-  const signedOut = Boolean(previousUser) && !account.user;
-  previousUser = account.user;
   if (!canEdit()) draft = null;
-  if (signedOut && apiReady) saveNote.textContent = 'Signed out. The shared backlog remains viewable.';
-  else showAccountNote();
+  showAccountNote();
   render();
+  // Signing in or out of a page with no ?user= switches to the right backlog.
+  loadGamesFor(account.pageOwner());
 });
 
+showPageTitle();
 render();
-loadGames();
+loadGamesFor(account.pageOwner());
