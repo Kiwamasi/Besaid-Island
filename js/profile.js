@@ -15,6 +15,10 @@ const colorInput = document.getElementById('profileColor');
 const colorValue = document.getElementById('profileColorValue');
 const colorReset = document.getElementById('profileColorReset');
 const colorStatus = document.getElementById('profileColorStatus');
+const adminPanel = document.getElementById('adminPanel');
+const energyTiles = document.getElementById('energyTiles');
+const energyNote = document.getElementById('energyNote');
+const energyRefresh = document.getElementById('energyRefresh');
 let requestedOwner = null;
 let profile = null;
 let loadVersion = 0;
@@ -78,6 +82,7 @@ async function loadProfileFor(name) {
   requestedOwner = name;
   profile = null;
   details.hidden = true;
+  showAdminPanel();
   profileTitle.textContent = 'Profile';
   profileNote.textContent = 'Loading profile…';
   try {
@@ -89,6 +94,7 @@ async function loadProfileFor(name) {
     profileNote.textContent = '';
     account.showOwnerInAddress(profile.username);
     showDetails();
+    showAdminPanel();
   } catch (error) {
     if (version !== loadVersion) return;
     // Let the next sign-in change try again.
@@ -124,8 +130,89 @@ colorInput.addEventListener('input', () => {
 colorInput.addEventListener('change', () => saveColor(colorInput.value));
 colorReset.addEventListener('click', () => saveColor(''));
 
+// ---------- Admin panel (the admin's own profile only) ----------
+
+// Electricity use and costs from Octopus, through the site API, which keeps the API
+// key and meter details to itself and only answers the admin.
+const ENERGY_PERIODS = [
+  ['today', 'Today'],
+  ['yesterday', 'Yesterday'],
+  ['week', 'This week'],
+  ['month', 'This month'],
+  ['year', 'This year']
+];
+const kwhFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
+const poundFormat = new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' });
+const pounds = pence => poundFormat.format(pence / 100);
+const dateTimeFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+let energyShownFor = null;
+let energyVersion = 0;
+
+function showAdminPanel() {
+  const show = isOwnProfile() && Boolean(account.user?.isAdmin);
+  adminPanel.hidden = !show;
+  if (!show) {
+    energyShownFor = null;
+    return;
+  }
+  if (energyShownFor !== account.user.username) loadEnergy();
+}
+
+async function loadEnergy(fresh = false) {
+  const version = ++energyVersion;
+  energyShownFor = account.user.username;
+  energyRefresh.disabled = true;
+  energyNote.textContent = fresh ? 'Asking Octopus…' : 'Loading…';
+  try {
+    const energy = await account.request('GET', null, `?energy=${fresh ? 'fresh' : '1'}`);
+    if (version !== energyVersion) return;
+    showEnergy(energy);
+  } catch (error) {
+    if (version !== energyVersion) return;
+    energyTiles.replaceChildren();
+    energyNote.textContent = error.message;
+  } finally {
+    if (version === energyVersion) energyRefresh.disabled = false;
+  }
+}
+
+function showEnergy({ periods, costs, tariff, latestReading, updatedAt }) {
+  energyTiles.replaceChildren(...ENERGY_PERIODS.map(([key, label]) => {
+    const period = periods[key];
+    const tile = document.createElement('li');
+    tile.className = 'energy-tile';
+    const name = document.createElement('span');
+    name.className = 'energy-label';
+    name.textContent = label;
+    const kwh = document.createElement('span');
+    kwh.className = 'energy-kwh';
+    kwh.textContent = `${kwhFormat.format(period.kwh)} kWh`;
+    tile.append(name, kwh);
+    if (costs) {
+      const total = document.createElement('span');
+      total.className = 'energy-cost';
+      // "~" when some of the use couldn't be priced (e.g. a two-rate tariff).
+      total.textContent = `${period.complete ? '' : '~'}${pounds(period.unitCost + period.standingCharge)}`;
+      const split = document.createElement('span');
+      split.className = 'energy-split';
+      split.textContent = `${pounds(period.unitCost)} use · ${pounds(period.standingCharge)} standing`;
+      tile.append(total, split);
+    }
+    return tile;
+  }));
+  energyNote.textContent = [
+    tariff && `Tariff ${tariff}`,
+    !costs && 'Add OCTOPUS_ACCOUNT on Netlify to see costs',
+    latestReading ? `Readings up to ${dateTimeFormat.format(latestReading)}` : 'No readings yet',
+    `Checked ${dateTimeFormat.format(updatedAt)}`
+  ].filter(Boolean).join(' · ');
+}
+
+energyRefresh.addEventListener('click', () => loadEnergy(true));
+
 document.addEventListener('site-account-change', () => {
   if (profile) showColorControls();
+  showAdminPanel();
   // Signing in or out of a page with no ?user= switches to the right profile.
   loadProfileFor(account.pageOwner());
 });

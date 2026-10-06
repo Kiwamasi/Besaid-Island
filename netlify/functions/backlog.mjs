@@ -1,6 +1,7 @@
 import { getStore } from '@netlify/blobs';
 import { createHmac, randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
+import { octopusConfigured, readEnergySummary } from '../lib/octopus.mjs';
 
 const STORE_NAME = 'public-game-backlog';
 const ACCOUNT_STORE_NAME = 'backlog-accounts';
@@ -46,6 +47,11 @@ const GEMINI_USER_KEY_PREFIX = 'gemini-user-';
 // [{ owner, id, title, createdAt }], newest first.
 const RECENT_KEY = 'recent';
 const MAX_RECENT = 20;
+// The admin's electricity summary from Octopus (netlify/lib/octopus.mjs), kept for a
+// while so the profile page doesn't ask Octopus every visit. Smart meter readings
+// arrive about once a day anyway. { at, summary }.
+const ENERGY_KEY = 'energy';
+const ENERGY_CACHE_MS = 30 * 60 * 1000;
 const pacificDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' });
 const GEMINI_MODELS = [process.env.GEMINI_MODEL, 'gemini-flash-latest', 'gemini-flash-lite-latest'].filter(Boolean);
 // How long to wait for Gemini to answer. Netlify stops a request after 60 seconds,
@@ -702,6 +708,30 @@ export default async (request, context) => {
         return respond(request, 200, {
           recent: recent.map(({ owner, title, createdAt }) => ({ owner: displayName(owner), title, createdAt }))
         });
+      }
+
+      // ?energy: the admin's electricity use and costs, for their profile's admin panel.
+      // Private: only the admin gets it. ?energy=fresh skips the saved copy.
+      if (params.has('energy')) {
+        if (!session?.isAdmin) return respond(request, 403, { error: 'Only the admin can see energy use' });
+        if (!octopusConfigured()) {
+          return respond(request, 503, {
+            error: 'Octopus isn't set up yet: add OCTOPUS_API_KEY, OCTOPUS_MPAN, OCTOPUS_SERIAL and OCTOPUS_ACCOUNT on Netlify'
+          });
+        }
+        const saved = await statsStore().get(ENERGY_KEY, { type: 'json' });
+        if (saved && params.get('energy') !== 'fresh' && Date.now() - saved.at < ENERGY_CACHE_MS) {
+          return respond(request, 200, { ...saved.summary, updatedAt: saved.at });
+        }
+        try {
+          const summary = await readEnergySummary();
+          const at = Date.now();
+          await statsStore().setJSON(ENERGY_KEY, { at, summary });
+          return respond(request, 200, { ...summary, updatedAt: at });
+        } catch (error) {
+          console.error('Octopus request failed', error);
+          return respond(request, 502, { error: `Couldn't get usage from Octopus: ${error.message}` });
+        }
       }
 
       if (params.has('users')) {

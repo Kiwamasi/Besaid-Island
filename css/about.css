@@ -345,7 +345,7 @@
   font-size: 0.85rem;
 }
 
-/* ---------- Collapsible box (Recent commits) ---------- */
+/* ---------- Collapsible boxes (every section opens and closes) ---------- */
 
 .stats-collapsible > summary {
   cursor: pointer;
@@ -374,8 +374,39 @@
   transition: transform 160ms ease;
 }
 
-.stats-collapsible[open] .stats-chevron {
+.stats-collapsible[open] .stats-chevron,
+.stats-side-collapsible[open] .stats-chevron {
   transform: rotate(90deg);
+}
+
+/* The sidebar's sections open and close the same way, without the box around them. */
+.stats-side-summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.stats-side-summary::-webkit-details-marker {
+  display: none;
+}
+
+.stats-side-summary:hover .stats-side-title {
+  color: var(--site-accent);
+}
+
+.stats-side-summary:focus-visible {
+  outline: 2px solid var(--site-focus);
+  outline-offset: 2px;
+}
+
+.stats-side-collapsible .stats-side-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  transition: color 160ms ease;
+}
+
+.stats-side-collapsible:not([open]) .stats-side-title {
+  margin-bottom: 0;
 }
 
 /* ---------- Main column + sidebar ---------- */

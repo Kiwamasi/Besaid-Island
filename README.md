@@ -39,7 +39,7 @@ The site is plain HTML, CSS and JavaScript, hosted on **GitHub Pages**. The shar
   - `about.js`: the Stats page (from GitHub and from Netlify).
   - `home.js`: the floating hover effect on the home page cards.
 - `assets/`: images and icons.
-- `netlify/`, `netlify.toml`, `package.json`: the small backlog and account service that runs on Netlify.
+- `netlify/`, `netlify.toml`, `package.json`: the small backlog and account service that runs on Netlify. `netlify/lib/octopus.mjs` is its Octopus Energy part.
 
 ### Game genres (Google Gemini)
 
@@ -61,6 +61,23 @@ The key stays on Netlify; it never goes in this repo or the pages.
 - **The genre list** is `GAME_CATEGORIES` in `netlify/functions/backlog.mjs`: broad genres only (Action, Action RPG, Adventure, Builder, Fighting, Horror, Platformer, Puzzle, Racing, RPG, Shooter, Souls-Like, Sports). Gemini has to pick one of them, or Other or Simulation, which aren't genres any more: a game Gemini puts there is left without a genre and isn't asked about again. Older games with Other or Simulation, and those typed in brackets, show no genre too. Souls-Like is the one exception to "broad only": Gemini is told to use it for soulslikes such as Dark Souls, Sekiro and Code Vein. Building and sandbox games like Minecraft are Builder. Strategy and tactics games are counted as RPG.
 - **Series in one slot:** a name ending in numbers split by slashes, like "Dark Souls 1/2/3", is sent to Gemini without them ("Dark Souls"). The saved name keeps the numbers.
 - **Usage:** Google has no API that reports remaining quota, so the service counts its own Gemini calls. The Stats page shows everyone today's requests and tokens, the last 30 days, all time (kept forever), and the last time a Google limit was hit. Days follow Pacific time, when Google resets daily limits. The real limits are on the [AI Studio rate limit page](https://aistudio.google.com/rate-limit). Optionally, set `GEMINI_DAILY_LIMIT` on Netlify to that daily request limit and the Stats page shows "used / limit".
+
+### Electricity (Octopus Energy)
+
+Kiwamari's profile has an admin panel, seen only by Kiwamari, with electricity use and costs for today, yesterday, this week, this month and this year. The Netlify service gets them from the [Octopus Energy API](https://developer.octopus.energy/rest/) (`netlify/lib/octopus.mjs`) and refuses anyone but the admin. The API key and meter details stay on Netlify; they never go in this repo or the pages.
+
+Setup: in Netlify, **Site configuration → Environment variables**, add:
+
+- `OCTOPUS_API_KEY`: from the Octopus dashboard, under Personal details → API access.
+- `OCTOPUS_MPAN`: the electricity meter's MPAN.
+- `OCTOPUS_SERIAL`: the electricity meter's serial number.
+- `OCTOPUS_ACCOUNT`: the account number (A-XXXXXXXX). Optional, but costs need it, as it's how the tariff is found.
+
+Then **Deploys → Trigger deploy**.
+
+- **Costs** use the real tariff for every half hour (so Agile and Go are priced right), plus the daily standing charge, with VAT, assuming payment by direct debit. Two-rate (Economy 7 style) tariffs can't be priced, as the API doesn't say which hours are night; costs that couldn't all be priced show with a "~".
+- **Today** is usually empty: smart meter readings reach Octopus about a day later. The panel says how far the readings go.
+- The summary is kept for 30 minutes so Octopus isn't asked on every visit; **Refresh** asks again straight away.
 
 ### Adding a new page
 

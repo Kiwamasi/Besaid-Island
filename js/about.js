@@ -17,6 +17,8 @@ const LANGUAGE_COLORS = { HTML: '#e34c26', CSS: '#663399', JavaScript: '#f1e05a'
 const PAGE_NAMES = {
   'index.html': 'Home',
   'backlog.html': 'Backlog',
+  'profile.html': 'Profile',
+  'users.html': 'Users',
   'about.html': 'Stats',
   'dark_cloud_2_idea_book.html': 'Dark Cloud 2 idea book'
 };
@@ -491,6 +493,24 @@ $('clearErrors').addEventListener('click', async () => {
 document.addEventListener('site-account-change', () => {
   if (account.status === 'ready' && Boolean(account.user?.isAdmin) !== statsLoadedAsAdmin) loadSiteStats();
 });
+
+// Every section opens and closes. Which ones you've closed (or opened) is remembered in
+// this browser, so the page comes back the way you left it.
+const SECTIONS_KEY = 'besaid-stats-sections';
+function readSections() {
+  try { return JSON.parse(localStorage.getItem(SECTIONS_KEY)) || {}; } catch { return {}; }
+}
+for (const section of document.querySelectorAll('details[data-section]')) {
+  const saved = readSections()[section.dataset.section];
+  if (typeof saved === 'boolean') section.open = saved;
+  section.addEventListener('toggle', () => {
+    try {
+      localStorage.setItem(SECTIONS_KEY, JSON.stringify({ ...readSections(), [section.dataset.section]: section.open }));
+    } catch {
+      // Storage unavailable: sections just start in their default state next time.
+    }
+  });
+}
 
 checkApi();
 loadConnection();

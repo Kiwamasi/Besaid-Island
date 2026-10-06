@@ -47,8 +47,17 @@
           </div>
         </dl>
       </section>
-    </div>
-  </main>
+
+      <!-- Only on the admin's own profile; the API refuses everyone else too. -->
+      <section class="profile-admin" id="adminPanel" aria-labelledby="adminPanelTitle" hidden>
+        <div class="profile-admin-head">
+          <h2 class="profile-admin-title" id="adminPanelTitle">Admin panel</h2>
+          <button class="profile-button" type="button" id="energyRefresh">Refresh</button>
+        </div>
+        <h3 class="profile-admin-subtitle">Electricity (Octopus)</h3>
+        <ul class="energy-tiles" id="energyTiles"></ul>
+        <p class="profile-admin-note" id="energyNote" role="status">Loading…</p>
+      </section>
 
   <script src="js/profile.js"></script>
 </body>

@@ -130,6 +130,92 @@
   font-size: 0.78rem;
 }
 
+/* ---------- Admin panel (the admin's own profile only) ---------- */
+
+.profile-admin {
+  max-width: 40rem;
+  margin-top: 1.5rem;
+  border: 1px solid var(--site-line);
+  border-radius: 6px;
+  padding: 0.9rem 1rem 1rem;
+  font-family: 'IBM Plex Sans', Arial, sans-serif;
+}
+
+.profile-admin[hidden] {
+  display: none;
+}
+
+.profile-admin-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.profile-admin-title {
+  color: var(--site-ink);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.profile-admin-subtitle {
+  margin: 0.8rem 0 0.6rem;
+  color: var(--site-muted);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.energy-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(7rem, 1fr));
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.energy-tile {
+  display: grid;
+  gap: 0.15rem;
+  border: 1px solid var(--site-line);
+  border-radius: 6px;
+  padding: 0.6rem 0.7rem;
+  background: rgba(241, 240, 235, 0.03);
+}
+
+.energy-label {
+  color: var(--site-muted);
+  font-size: 0.75rem;
+}
+
+.energy-kwh {
+  color: var(--site-ink);
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.energy-cost {
+  color: var(--site-accent);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.energy-split {
+  color: var(--site-muted);
+  font-size: 0.68rem;
+}
+
+.profile-admin-note {
+  margin-top: 0.7rem;
+  color: var(--site-muted);
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.profile-admin-note:empty {
+  display: none;
+}
+
 @media (max-width: 720px) {
   .profile-main { padding: 1.25rem 1rem 2rem; }
   .profile-row { grid-template-columns: 8rem minmax(0, 1fr); }

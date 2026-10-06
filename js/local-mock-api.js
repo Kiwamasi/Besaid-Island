@@ -300,6 +300,29 @@
           .slice(0, 20);
         return json(200, { recent });
       }
+      // Made-up numbers in the shape of readEnergySummary (netlify/lib/octopus.mjs).
+      if (url.searchParams.has('energy')) {
+        if (!user?.isAdmin) return json(403, { error: 'Only the admin can see energy use' });
+        const now = Date.now();
+        const midnight = new Date(now).setHours(0, 0, 0, 0);
+        const period = (from, days) => ({
+          from, to: now, kwh: Math.round(days * 8.4 * 1000) / 1000,
+          unitCost: Math.round(days * 8.4 * 24.5 * 100) / 100, standingCharge: Math.round(days * 51.2 * 100) / 100, complete: true
+        });
+        return json(200, {
+          tariff: 'E-1R-VAR-22-11-01-C',
+          costs: true,
+          latestReading: midnight,
+          updatedAt: now,
+          periods: {
+            today: { ...period(midnight, 0), complete: true },
+            yesterday: { ...period(midnight - 86400000, 1), to: midnight },
+            week: period(midnight - 3 * 86400000, 3),
+            month: period(midnight - 6 * 86400000, 6),
+            year: period(midnight - 279 * 86400000, 279)
+          }
+        });
+      }
       if (url.searchParams.has('users')) {
         const usernames = Object.keys(read(ACCOUNTS_KEY, {}))
           .sort((first, second) => first.localeCompare(second, undefined, { numeric: true, sensitivity: 'base' }));

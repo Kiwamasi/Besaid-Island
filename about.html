@@ -43,26 +43,35 @@
 
     <div class="stats-layout">
       <div class="stats-main">
-        <section class="stats-box admin-only" id="errorsBox" hidden aria-labelledby="errorsTitle">
-          <div class="stats-box-head">
-            <h2 class="stats-box-title" id="errorsTitle">Errors <span class="stats-count" id="errorsCount">0</span></h2>
+        <details class="stats-box stats-collapsible admin-only" id="errorsBox" data-section="errors" hidden open>
+          <summary class="stats-box-head">
+            <h2 class="stats-box-title" id="errorsTitle">
+              <svg class="icon stats-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z" fill="currentColor"/></svg>
+              Errors <span class="stats-count" id="errorsCount">0</span>
+            </h2>
             <button class="stats-button" type="button" id="clearErrors">Clear</button>
-          </div>
+          </summary>
           <ul class="stats-list" id="errorsList"></ul>
-        </section>
+        </details>
 
-        <section class="stats-box" id="geminiBox" hidden aria-labelledby="geminiTitle">
-          <div class="stats-box-head">
-            <h2 class="stats-box-title" id="geminiTitle">Gemini usage</h2>
+        <details class="stats-box stats-collapsible" id="geminiBox" data-section="gemini" hidden open>
+          <summary class="stats-box-head">
+            <h2 class="stats-box-title" id="geminiTitle">
+              <svg class="icon stats-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z" fill="currentColor"/></svg>
+              Gemini usage
+            </h2>
             <a class="stats-box-link" href="https://aistudio.google.com/rate-limit" target="_blank" rel="noopener">Limits on AI Studio</a>
-          </div>
+          </summary>
           <dl class="connection" id="geminiUsage"></dl>
-        </section>
+        </details>
 
-        <section class="stats-box" aria-labelledby="connectionTitle">
-          <div class="stats-box-head">
-            <h2 class="stats-box-title" id="connectionTitle">Your connection</h2>
-          </div>
+        <details class="stats-box stats-collapsible" data-section="connection" open>
+          <summary class="stats-box-head">
+            <h2 class="stats-box-title" id="connectionTitle">
+              <svg class="icon stats-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z" fill="currentColor"/></svg>
+              Your connection
+            </h2>
+          </summary>
           <dl class="connection" id="connection">
             <div class="connection-row">
               <dt>IPv6 address</dt>
@@ -77,9 +86,9 @@
               <dd id="connectionTimezone">–</dd>
             </div>
           </dl>
-        </section>
+        </details>
 
-        <details class="stats-box stats-collapsible" open>
+        <details class="stats-box stats-collapsible" data-section="deployments" open>
           <summary class="stats-box-head">
             <h2 class="stats-box-title" id="deploysTitle">
               <svg class="icon stats-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z" fill="currentColor"/></svg>
@@ -90,7 +99,7 @@
           <ul class="stats-list" id="deploysList"><li class="stats-empty">Loading…</li></ul>
         </details>
 
-        <details class="stats-box stats-collapsible">
+        <details class="stats-box stats-collapsible" data-section="commits">
           <summary class="stats-box-head">
             <h2 class="stats-box-title" id="commitsTitle">
               <svg class="icon stats-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z" fill="currentColor"/></svg>
@@ -103,23 +112,29 @@
       </div>
 
       <aside class="stats-side">
-        <section class="stats-side-section" aria-labelledby="languagesTitle">
-          <h2 class="stats-side-title" id="languagesTitle">Languages</h2>
+        <details class="stats-side-section stats-side-collapsible" data-section="languages" open>
+          <summary class="stats-side-summary">
+            <h2 class="stats-side-title" id="languagesTitle"><svg class="icon stats-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z" fill="currentColor"/></svg>Languages</h2>
+          </summary>
           <div class="lang-bar" id="langBar"></div>
           <ul class="lang-list" id="langList"><li class="stats-empty">Loading…</li></ul>
-        </section>
+        </details>
 
-        <section class="stats-side-section" aria-labelledby="pagesTitle">
-          <h2 class="stats-side-title" id="pagesTitle">Top pages · all time</h2>
+        <details class="stats-side-section stats-side-collapsible" data-section="pages" open>
+          <summary class="stats-side-summary">
+            <h2 class="stats-side-title" id="pagesTitle"><svg class="icon stats-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z" fill="currentColor"/></svg>Top pages · all time</h2>
+          </summary>
           <ul class="bar-list" id="pagesList"><li class="stats-empty">Loading…</li></ul>
-        </section>
+        </details>
 
-        <section class="stats-side-section" aria-labelledby="backlogTitle">
-          <h2 class="stats-side-title" id="backlogTitle">Backlog</h2>
+        <details class="stats-side-section stats-side-collapsible" data-section="backlog" open>
+          <summary class="stats-side-summary">
+            <h2 class="stats-side-title" id="backlogTitle"><svg class="icon stats-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z" fill="currentColor"/></svg>Backlog</h2>
+          </summary>
           <ul class="bar-list" id="systemsList"><li class="stats-empty">Loading…</li></ul>
           <h3 class="stats-side-subtitle">Recently added</h3>
           <ul class="mini-list" id="recentGames"></ul>
-        </section>
+        </details>
       </aside>
     </div>
   </main>
