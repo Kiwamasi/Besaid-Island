@@ -72,8 +72,7 @@
     };
   }
 
-  // Mirrors readProfile in netlify/functions/backlog.mjs. To try a premium account
-  // locally, add "premium": true to its entry in the besaid-mock-accounts storage.
+  // Mirrors readProfile in netlify/functions/backlog.mjs.
   function readProfile(username) {
     const isAdmin = username === ADMIN_USERNAME;
     const account = isAdmin ? null : read(ACCOUNTS_KEY, {})[username];
@@ -272,7 +271,8 @@
         return json(200, {
           users: [ADMIN_USERNAME, ...usernames].map(username => ({
             username: displayName(username),
-            isAdmin: username === ADMIN_USERNAME
+            isAdmin: username === ADMIN_USERNAME,
+            isPremium: username === ADMIN_USERNAME || read(ACCOUNTS_KEY, {})[username]?.premium === true
           }))
         });
       }
@@ -293,6 +293,28 @@
       if (!session.isAdmin) return json(403, { error: 'Only the admin can clear errors' });
       localStorage.setItem(ERRORS_KEY, '[]');
       return json(200, { cleared: true });
+    }
+
+    if (method === 'POST' && body?.action === 'update-user') {
+      if (!session.isAdmin) return json(403, { error: 'Only the admin can change accounts' });
+      const username = findAccount(body.username);
+      if (!username) return json(404, { error: 'There is no account with that name' });
+      const color = body.color === undefined || body.color === '' ? null : cleanColor(body.color);
+      if (color === null && body.color !== undefined && body.color !== '') return json(400, { error: 'Invalid colour' });
+      if (body.premium !== undefined && typeof body.premium !== 'boolean') {
+        return json(400, { error: 'Invalid premium setting' });
+      }
+      if (body.premium !== undefined && username !== ADMIN_USERNAME) {
+        const accounts = read(ACCOUNTS_KEY, {});
+        accounts[username] = { ...accounts[username], premium: body.premium };
+        localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
+      }
+      if (body.color !== undefined) {
+        const settings = read(SETTINGS_KEY, {});
+        settings[username] = { ...settings[username], color };
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+      }
+      return json(200, { profile: readProfile(username) });
     }
 
     if (method === 'POST' && body?.action === 'delete-user') {

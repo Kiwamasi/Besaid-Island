@@ -29,6 +29,38 @@
     </div>
   </main>
 
+  <!-- Admin only: an account's settings (the pen next to each user). -->
+  <dialog class="site-dialog users-edit-dialog" id="editDialog" aria-labelledby="editTitle">
+    <div class="dialog-heading">
+      <h2 id="editTitle">Edit user</h2>
+      <button class="dialog-close" type="button" id="editClose" aria-label="Close">×</button>
+    </div>
+    <p class="users-edit-status" id="editStatus"></p>
+    <div class="users-edit-fields" id="editFields" hidden>
+      <dl class="users-edit-list">
+        <div class="users-edit-row"><dt>Admin</dt><dd id="editAdmin"></dd></div>
+        <div class="users-edit-row"><dt>Games in Backlog</dt><dd id="editGames"></dd></div>
+        <div class="users-edit-row"><dt>Storage Used</dt><dd id="editStorage"></dd></div>
+        <div class="users-edit-row">
+          <dt><label for="editPremium">Premium User</label></dt>
+          <dd><input type="checkbox" id="editPremium"></dd>
+        </div>
+        <div class="users-edit-row">
+          <dt><label for="editColor">Color</label></dt>
+          <dd class="users-edit-color">
+            <input type="color" id="editColor">
+            <label class="users-edit-default"><input type="checkbox" id="editColorDefault"> Default</label>
+          </dd>
+        </div>
+      </dl>
+    </div>
+    <p class="users-delete-error" id="editError" role="alert"></p>
+    <div class="dialog-actions">
+      <button class="button-secondary" type="button" id="editCancel">Cancel</button>
+      <button class="button-primary" type="button" id="editSave">Save</button>
+    </div>
+  </dialog>
+
   <!-- Admin only: asked before deleting an account (the bin next to each user). -->
   <dialog class="site-dialog users-delete-dialog" id="deleteDialog" aria-labelledby="deleteTitle">
     <div class="dialog-heading">

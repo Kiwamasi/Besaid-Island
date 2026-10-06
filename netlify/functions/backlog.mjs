@@ -238,13 +238,14 @@ function usernameFromKey(key) {
 
 // Every account for the Users page: the admin first, then A–Z.
 async function listUsers() {
-  const { blobs } = await accountsStore().list({ prefix: ACCOUNT_KEY_PREFIX });
-  const usernames = blobs.map(({ key }) => usernameFromKey(key))
-    .sort((first, second) => first.localeCompare(second, undefined, { numeric: true, sensitivity: 'base' }));
-  return [ADMIN_USERNAME, ...usernames].map(username => ({
-    username: displayName(username),
-    isAdmin: username === ADMIN_USERNAME
+  const accounts = accountsStore();
+  const { blobs } = await accounts.list({ prefix: ACCOUNT_KEY_PREFIX });
+  const others = await Promise.all(blobs.map(async ({ key }) => {
+    const account = await accounts.get(key, { type: 'json' });
+    return { username: usernameFromKey(key), isAdmin: false, isPremium: account?.premium === true };
   }));
+  others.sort((first, second) => first.username.localeCompare(second.username, undefined, { numeric: true, sensitivity: 'base' }));
+  return [{ username: ADMIN_DISPLAY_NAME, isAdmin: true, isPremium: true }, ...others];
 }
 
 async function listGames(store, username) {
@@ -635,6 +636,29 @@ export default async (request, context) => {
       if (username === ADMIN_USERNAME) return respond(request, 400, { error: 'The admin account cannot be deleted' });
       await deleteAccount(username);
       return respond(request, 200, { deleted: true });
+    }
+
+    // Sent by the Users page's pen: the admin changes another account's settings.
+    // premium (true/false) and color ("#rrggbb", or '' for the default) are each
+    // optional. The admin is always premium. Answers with the updated profile.
+    if (request.method === 'POST' && body?.action === 'update-user') {
+      if (!session.isAdmin) return respond(request, 403, { error: 'Only the admin can change accounts' });
+      const username = typeof body.username === 'string' ? await findAccount(body.username) : null;
+      if (!username) return respond(request, 404, { error: 'There is no account with that name' });
+      const color = body.color === undefined || body.color === '' ? null : cleanColor(body.color);
+      if (color === null && body.color !== undefined && body.color !== '') {
+        return respond(request, 400, { error: 'Invalid colour' });
+      }
+      if (body.premium !== undefined && typeof body.premium !== 'boolean') {
+        return respond(request, 400, { error: 'Invalid premium setting' });
+      }
+      if (body.premium !== undefined && username !== ADMIN_USERNAME) {
+        await updateJson(accountsStore(), accountKey(username), account => ({ ...account, premium: body.premium }));
+      }
+      if (body.color !== undefined) {
+        await updateJson(accountsStore(), settingsKey(username), settings => ({ ...settings, color }));
+      }
+      return respond(request, 200, { profile: await readProfile(username) });
     }
 
     if (request.method === 'POST' && body?.action === 'clear-errors') {
