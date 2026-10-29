@@ -9,6 +9,12 @@
 //   OCTOPUS_NIGHT_HOURS  for two-rate (Economy 7 style) tariffs only: when the night
 //                     rate applies, in GMT, like "00:30-07:30" (the default). The meter
 //                     keeps GMT all year, so in summer that's an hour later on the clock.
+//   OCTOPUS_DEVICE_ID optional: the Home Mini's smart device ID. Without it, it's
+//                     looked up from OCTOPUS_ACCOUNT (the meter matching OCTOPUS_SERIAL).
+//
+// Live use (readLiveEnergy) comes from the Octopus Home Mini, through Octopus's
+// GraphQL API rather than the REST one: it reports about every 10 seconds, where the
+// meter's half-hourly readings reach the REST API about a day later.
 //
 // Costs use the account's real tariff for each half hour: the unit rate in force then
 // (so time-of-use tariffs like Agile and Go are priced correctly) plus the daily
@@ -51,6 +57,91 @@ async function getAll(path, params) {
 }
 
 const iso = time => new Date(time).toISOString();
+
+// ---------- Octopus GraphQL API (Home Mini) ----------
+
+const GRAPHQL = 'https://api.octopus.energy/v1/graphql/';
+// Kraken tokens last an hour; a new one is fetched a little before that.
+const TOKEN_LIFETIME_MS = 50 * 60 * 1000;
+// The live chart covers this much of the recent past.
+const LIVE_WINDOW_MS = 60 * 60 * 1000;
+// Several open tabs (or a quick Refresh) within this long share one answer.
+const LIVE_CACHE_MS = 8000;
+
+// Kept between requests while Netlify keeps the function warm.
+let kraken = null; // { token, expires }
+let homeMiniId = null;
+let liveCache = null; // { at, live }
+
+async function graphqlPost(query, variables, token) {
+  const response = await fetch(GRAPHQL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `JWT ${token}` } : {}) },
+    body: JSON.stringify({ query, variables }),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+  });
+  if (!response.ok) throw new Error(`Octopus answered HTTP ${response.status} for GraphQL`);
+  const result = await response.json();
+  if (result.errors?.length) throw new Error(result.errors.map(error => error.message).join('; '));
+  return result.data;
+}
+
+async function krakenToken(renew = false) {
+  if (!renew && kraken && kraken.expires > Date.now()) return kraken.token;
+  const data = await graphqlPost(
+    'mutation krakenToken($apiKey: String!) { obtainKrakenToken(input: { APIKey: $apiKey }) { token } }',
+    { apiKey: process.env.OCTOPUS_API_KEY }
+  );
+  const token = data?.obtainKrakenToken?.token;
+  if (!token) throw new Error("Octopus didn't give a GraphQL token for that API key");
+  kraken = { token, expires: Date.now() + TOKEN_LIFETIME_MS };
+  return token;
+}
+
+// A signed-in GraphQL query. A saved token Octopus no longer accepts is renewed once.
+async function graphql(query, variables = {}) {
+  const saved = Boolean(kraken && kraken.expires > Date.now());
+  try {
+    return await graphqlPost(query, variables, await krakenToken());
+  } catch (error) {
+    if (!saved) throw error;
+    return graphqlPost(query, variables, await krakenToken(true));
+  }
+}
+
+// The Home Mini's device ID: OCTOPUS_DEVICE_ID, or the smart device on the account's
+// electricity meter (the one with OCTOPUS_SERIAL, if the account has several).
+async function findHomeMini() {
+  if (process.env.OCTOPUS_DEVICE_ID) return process.env.OCTOPUS_DEVICE_ID.trim();
+  if (homeMiniId) return homeMiniId;
+  if (!process.env.OCTOPUS_ACCOUNT) {
+    throw new Error('Add OCTOPUS_ACCOUNT (or OCTOPUS_DEVICE_ID) on Netlify to find the Home Mini');
+  }
+  const data = await graphql(`query homeMini($account: String!) {
+    account(accountNumber: $account) {
+      electricityAgreements(active: true) {
+        meterPoint { mpan meters(includeInactive: false) { serialNumber smartDevices { deviceId } } }
+      }
+    }
+  }`, { account: process.env.OCTOPUS_ACCOUNT });
+  const meters = (data?.account?.electricityAgreements || [])
+    .flatMap(agreement => agreement.meterPoint?.meters || []);
+  const withDevice = meters.filter(meter => meter.smartDevices?.length);
+  const meter = withDevice.find(each => each.serialNumber === process.env.OCTOPUS_SERIAL) || withDevice[0];
+  if (!meter) throw new Error('No Home Mini (smart device) found on the Octopus account');
+  homeMiniId = meter.smartDevices[0].deviceId;
+  return homeMiniId;
+}
+
+async function telemetry(deviceId, grouping, from, to) {
+  // grouping is an enum, so it goes in the query itself rather than as a variable.
+  const data = await graphql(`query telemetry($deviceId: String!, $start: DateTime!, $end: DateTime!) {
+    smartMeterTelemetry(deviceId: $deviceId, grouping: ${grouping}, start: $start, end: $end) {
+      readAt demand consumptionDelta costDeltaWithTax
+    }
+  }`, { deviceId, start: iso(from), end: iso(to) });
+  return data?.smartMeterTelemetry || [];
+}
 
 // ---------- UK days ----------
 
@@ -282,4 +373,53 @@ export async function readEnergySummary(now = Date.now()) {
     days: [...chartDays].sort(([first], [second]) => first.localeCompare(second))
       .map(([date, dayReadings]) => ({ date, readings: dayReadings.sort((first, second) => first[0] - second[0]) }))
   };
+}
+
+// ---------- Live (Home Mini) ----------
+
+// { readAt, demand, points, today } for the profile's live panel:
+// readAt     when the Home Mini's newest reading was taken (ms), or null
+// demand     the power being drawn then, in watts
+// points     [[time, watts], …] every 10 seconds over the last LIVE_WINDOW_MS, oldest first
+// today      { kwh, cost } since midnight UK time, cost in pence with VAT (unit rates
+//            only, no standing charge; null if Octopus didn't price it), or null if
+//            Octopus couldn't say
+export async function readLiveEnergy(now = Date.now()) {
+  if (liveCache && now - liveCache.at < LIVE_CACHE_MS) return liveCache.live;
+  const deviceId = await findHomeMini();
+  const { year, month, day } = londonDate(now);
+  const [recent, sinceMidnight] = await Promise.allSettled([
+    telemetry(deviceId, 'TEN_SECONDS', now - LIVE_WINDOW_MS, now),
+    telemetry(deviceId, 'THIRTY_MINUTES', londonMidnight(year, month, day), now)
+  ]);
+  if (recent.status === 'rejected') throw recent.reason;
+  if (sinceMidnight.status === 'rejected') console.error('Home Mini daily total failed', sinceMidnight.reason);
+
+  const number = value => (value === null || value === undefined || value === '' ? null : Number(value));
+  const points = recent.value
+    .map(reading => [Date.parse(reading.readAt), number(reading.demand)])
+    .filter(([time, watts]) => Number.isFinite(time) && Number.isFinite(watts))
+    .sort((first, second) => first[0] - second[0]);
+  const newest = points.at(-1);
+
+  let today = null;
+  if (sinceMidnight.status === 'fulfilled') {
+    let wh = 0;
+    let cost = 0;
+    let priced = true;
+    for (const reading of sinceMidnight.value) {
+      wh += number(reading.consumptionDelta) || 0;
+      const delta = number(reading.costDeltaWithTax);
+      if (delta === null || !Number.isFinite(delta)) priced = false;
+      else cost += delta;
+    }
+    today = {
+      kwh: Math.round(wh) / 1000,
+      cost: priced && sinceMidnight.value.length ? Math.round(cost * 100) / 100 : null
+    };
+  }
+
+  const live = { readAt: newest?.[0] ?? null, demand: newest?.[1] ?? null, points, today };
+  liveCache = { at: now, live };
+  return live;
 }

@@ -300,6 +300,32 @@
           .slice(0, 20);
         return json(200, { recent });
       }
+      // Made-up Home Mini readings in the shape of readLiveEnergy (netlify/lib/octopus.mjs):
+      // a steady base load, a fridge cycling, and a kettle now and then. Worked out from
+      // the time alone, so each answer carries on from the last.
+      if (url.searchParams.has('energy-live')) {
+        if (!user?.isAdmin) return json(403, { error: 'Only the admin can see energy use' });
+        const now = Date.now();
+        const watts = time => {
+          const minute = time / 60000;
+          const fridge = Math.sin(minute / 6) > 0.2 ? 90 : 0;
+          const kettle = minute % 23 < 3 ? 2800 : 0;
+          return Math.round(240 + fridge + kettle + 35 * Math.sin(time / 47000) + 20 * Math.sin(time / 9000));
+        };
+        // Readings every 10 seconds, the newest about half a minute old, as from Octopus.
+        const newest = Math.floor((now - 30000) / 10000) * 10000;
+        const points = [];
+        for (let time = newest - 3600000 + 10000; time <= newest; time += 10000) points.push([time, watts(time)]);
+        const midnight = new Date(now).setHours(0, 0, 0, 0);
+        const kwh = Math.round(((now - midnight) / 3600000) * 0.42 * 1000) / 1000;
+        return json(200, {
+          readAt: newest,
+          demand: watts(newest),
+          points,
+          today: { kwh, cost: Math.round(kwh * 24.5 * 100) / 100 },
+          updatedAt: now
+        });
+      }
       // Made-up numbers in the shape of readEnergySummary (netlify/lib/octopus.mjs).
       if (url.searchParams.has('energy')) {
         if (!user?.isAdmin) return json(403, { error: 'Only the admin can see energy use' });

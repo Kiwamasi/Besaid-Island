@@ -358,6 +358,152 @@
   font-weight: 500;
 }
 
+/* ---------- Live use from the Home Mini (js/energy-live.js) ---------- */
+
+.energy-live {
+  margin-bottom: 1rem;
+  border: 1px solid var(--site-line);
+  border-radius: 6px;
+  padding: 0.8rem 0.9rem 0.6rem;
+  background: rgba(241, 240, 235, 0.03);
+}
+
+.energy-live-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+}
+
+.energy-live-now {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 0.1rem 0.6rem;
+}
+
+.energy-live-badge {
+  grid-row: span 2;
+  align-self: start;
+  margin-top: 0.45rem;
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  background: var(--site-accent);
+  color: var(--site-on-accent);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.energy-live-value {
+  color: var(--site-ink);
+  font-size: 2rem;
+  font-weight: 600;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.energy-live-reading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 0.6rem;
+}
+
+.energy-live-countdown {
+  color: var(--site-muted);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.energy-live-label {
+  color: var(--site-muted);
+  font-size: 0.75rem;
+}
+
+.energy-live-now.is-stale .energy-live-badge {
+  background: var(--site-line-strong);
+  color: var(--site-muted);
+}
+
+.energy-live-meta {
+  display: grid;
+  justify-items: end;
+  gap: 0.1rem;
+}
+
+.energy-live-meta-label {
+  color: var(--site-muted);
+  font-size: 0.72rem;
+}
+
+.energy-live-meta-value {
+  color: var(--site-accent);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.energy-live-svg {
+  cursor: crosshair;
+}
+
+.energy-live-stop-top {
+  stop-color: var(--site-accent);
+  stop-opacity: 0.35;
+}
+
+.energy-live-stop-bottom {
+  stop-color: var(--site-accent);
+  stop-opacity: 0;
+}
+
+.energy-live-area {
+  fill: url(#energyLiveFill);
+}
+
+.energy-live-line {
+  fill: none;
+  stroke: var(--site-accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.energy-live-point,
+.energy-live-marker {
+  fill: var(--site-accent);
+  stroke: var(--site-header-bg);
+  stroke-width: 2;
+}
+
+.energy-live-pulse {
+  fill: var(--site-accent);
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: energy-live-pulse 2s ease-out infinite;
+}
+
+@keyframes energy-live-pulse {
+  from { opacity: 0.6; transform: scale(1); }
+  to { opacity: 0; transform: scale(3.5); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .energy-live-pulse { animation: none; opacity: 0; }
+}
+
+.energy-live-cursor {
+  stroke: var(--site-line-strong);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+@media (max-width: 480px) {
+  .energy-live-meta { justify-items: start; }
+}
+
 @media (max-width: 720px) {
   .profile-main { padding: 1.25rem 1rem 2rem; }
   .profile-row { grid-template-columns: 8rem minmax(0, 1fr); }

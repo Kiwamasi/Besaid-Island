@@ -20,6 +20,7 @@ const energyTiles = document.getElementById('energyTiles');
 const energyNote = document.getElementById('energyNote');
 const energyRefresh = document.getElementById('energyRefresh');
 const energyChart = document.getElementById('energyChart');
+const energyLiveBox = document.getElementById('energyLive');
 let requestedOwner = null;
 let profile = null;
 let loadVersion = 0;
@@ -148,15 +149,30 @@ const pounds = pence => poundFormat.format(pence / 100);
 const dateTimeFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 let energyShownFor = null;
 let energyVersion = 0;
+// The last ?energy answer, and today's use so far from the Home Mini (js/energy-live.js),
+// which fills the Today tile: the meter's own half-hourly readings arrive a day late.
+let energySummary = null;
+let liveToday = null;
 
 function showAdminPanel() {
   const show = isOwnProfile() && Boolean(account.user?.isAdmin);
   adminPanel.hidden = !show;
   if (!show) {
     energyShownFor = null;
+    window.energyLive.stop();
     return;
   }
-  if (energyShownFor !== account.user.username) loadEnergy();
+  if (energyShownFor !== account.user.username) {
+    loadEnergy();
+    liveToday = null;
+    window.energyLive.start(energyLiveBox, {
+      load: () => account.request('GET', null, '?energy-live'),
+      onUpdate: live => {
+        liveToday = live?.today || null;
+        if (energySummary) showEnergyTiles();
+      }
+    });
+  }
 }
 
 async function loadEnergy(fresh = false) {
@@ -172,6 +188,7 @@ async function loadEnergy(fresh = false) {
     showEnergy(energy);
   } catch (error) {
     if (version !== energyVersion) return;
+    energySummary = null;
     energyTiles.replaceChildren();
     energyChart.replaceChildren();
     energyNote.textContent = error.message;
@@ -180,20 +197,45 @@ async function loadEnergy(fresh = false) {
   }
 }
 
-function showEnergy({ periods, costs, tariff, nightHours, latestReading, updatedAt, days }) {
+function showEnergy(summary) {
+  const { costs, tariff, nightHours, latestReading, updatedAt, days } = summary;
+  energySummary = summary;
   // Half-hourly chart of past days (js/energy-chart.js). A summary saved before the
   // chart existed has no days; Refresh fetches them.
   if (days) window.energyChart.show(energyChart, days, costs);
   else energyChart.replaceChildren(Object.assign(document.createElement('p'), {
     className: 'energy-chart-empty', textContent: 'Press Refresh to load the chart.'
   }));
+  showEnergyTiles();
+  energyNote.textContent = [
+    tariff && `Tariff ${tariff}`,
+    nightHours && `Night rate ${nightHours}`,
+    !costs && 'Add OCTOPUS_ACCOUNT on Netlify to see costs',
+    latestReading ? `Readings up to ${dateTimeFormat.format(latestReading)}` : 'No readings yet',
+    `Checked ${dateTimeFormat.format(updatedAt)}`
+  ].filter(Boolean).join(' · ');
+}
+
+function showEnergyTiles() {
+  const { periods, costs } = energySummary;
   energyTiles.replaceChildren(...ENERGY_PERIODS.map(([key, label]) => {
-    const period = periods[key];
+    let period = periods[key];
+    // Today from the Home Mini when it's reporting: its use and unit costs, plus the
+    // standing charge the summary worked out.
+    const live = key === 'today' && liveToday;
+    if (live) {
+      period = {
+        ...period,
+        kwh: liveToday.kwh,
+        unitCost: liveToday.cost ?? 0,
+        complete: liveToday.cost !== null && period.complete
+      };
+    }
     const tile = document.createElement('li');
     tile.className = 'energy-tile';
     const name = document.createElement('span');
     name.className = 'energy-label';
-    name.textContent = label;
+    name.textContent = live ? `${label} (live)` : label;
     const kwh = document.createElement('span');
     kwh.className = 'energy-kwh';
     kwh.textContent = `${kwhFormat.format(period.kwh)} kWh`;
@@ -210,16 +252,12 @@ function showEnergy({ periods, costs, tariff, nightHours, latestReading, updated
     }
     return tile;
   }));
-  energyNote.textContent = [
-    tariff && `Tariff ${tariff}`,
-    nightHours && `Night rate ${nightHours}`,
-    !costs && 'Add OCTOPUS_ACCOUNT on Netlify to see costs',
-    latestReading ? `Readings up to ${dateTimeFormat.format(latestReading)}` : 'No readings yet',
-    `Checked ${dateTimeFormat.format(updatedAt)}`
-  ].filter(Boolean).join(' · ');
 }
 
-energyRefresh.addEventListener('click', () => loadEnergy(true));
+energyRefresh.addEventListener('click', () => {
+  loadEnergy(true);
+  window.energyLive.refresh();
+});
 
 document.addEventListener('site-account-change', () => {
   if (profile) showColorControls();

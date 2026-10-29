@@ -79,6 +79,12 @@
   transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
 }
 
+/* Less room on the right suits the count after the name; "All" has no count, so it
+   gets even padding to sit centred. */
+.genre-chip[data-genre=""] {
+  padding-inline: 0.55rem;
+}
+
 .genre-chip:hover {
   border-color: var(--site-accent);
   color: var(--site-ink);

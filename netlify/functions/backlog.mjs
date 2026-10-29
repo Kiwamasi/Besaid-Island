@@ -1,7 +1,7 @@
 import { getStore } from '@netlify/blobs';
 import { createHmac, randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
-import { octopusConfigured, readEnergySummary } from '../lib/octopus.mjs';
+import { octopusConfigured, readEnergySummary, readLiveEnergy } from '../lib/octopus.mjs';
 
 const STORE_NAME = 'public-game-backlog';
 const ACCOUNT_STORE_NAME = 'backlog-accounts';
@@ -731,6 +731,23 @@ export default async (request, context) => {
         } catch (error) {
           console.error('Octopus request failed', error);
           return respond(request, 502, { error: `Couldn't get usage from Octopus: ${error.message}` });
+        }
+      }
+
+      // ?energy-live: the admin's live use from the Octopus Home Mini, asked for every
+      // few seconds by the profile's live panel. Not saved; only the admin gets it.
+      if (params.has('energy-live')) {
+        if (!session?.isAdmin) return respond(request, 403, { error: 'Only the admin can see energy use' });
+        if (!octopusConfigured()) {
+          return respond(request, 503, {
+            error: "Octopus isn't set up yet: add OCTOPUS_API_KEY, OCTOPUS_MPAN, OCTOPUS_SERIAL and OCTOPUS_ACCOUNT on Netlify"
+          });
+        }
+        try {
+          return respond(request, 200, { ...(await readLiveEnergy()), updatedAt: Date.now() });
+        } catch (error) {
+          console.error('Octopus Home Mini request failed', error);
+          return respond(request, 502, { error: `Couldn't get live use from the Home Mini: ${error.message}` });
         }
       }
 

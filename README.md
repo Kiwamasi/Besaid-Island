@@ -65,20 +65,22 @@ The key stays on Netlify; it never goes in this repo or the pages.
 
 ### Electricity (Octopus Energy)
 
-Kiwamari's profile has an admin panel, seen only by Kiwamari, with electricity use and costs for today, yesterday, this week, this month and this year, and a half-hourly chart of each of the last 31 days that have readings (previous/next day buttons; hover a column, or focus the chart and use the arrow keys, for its time, kWh and cost; night-rate hours are shaded; "Show as table" lists every half hour). The Netlify service gets them from the [Octopus Energy API](https://developer.octopus.energy/rest/) (`netlify/lib/octopus.mjs`) and refuses anyone but the admin. The API key and meter details stay on Netlify; they never go in this repo or the pages.
+Kiwamari's profile has an admin panel, seen only by Kiwamari. At the top is a live view from the Octopus Home Mini, like the one in the Octopus app: the power being used now, a line of the last hour's demand (hover it, or focus it and use the arrow keys, to read any moment; arrow keys step a minute at a time), and today's use and cost so far. It updates every 10 seconds while the tab is open and visible. Below it are electricity use and costs for today, yesterday, this week, this month and this year, and a half-hourly chart of each of the last 31 days that have readings (previous/next day buttons; hover a column, or focus the chart and use the arrow keys, for its time, kWh and cost; night-rate hours are shaded; "Show as table" lists every half hour). The Netlify service gets them from the [Octopus Energy API](https://developer.octopus.energy/rest/) (`netlify/lib/octopus.mjs`) and refuses anyone but the admin. The API key and meter details stay on Netlify; they never go in this repo or the pages.
 
 Setup: in Netlify, **Site configuration → Environment variables**, add:
 
 - `OCTOPUS_API_KEY`: from the Octopus dashboard, under Personal details → API access.
 - `OCTOPUS_MPAN`: the electricity meter's MPAN.
 - `OCTOPUS_SERIAL`: the electricity meter's serial number.
-- `OCTOPUS_ACCOUNT`: the account number (A-XXXXXXXX). Optional, but costs need it, as it's how the tariff is found.
+- `OCTOPUS_ACCOUNT`: the account number (A-XXXXXXXX). Optional, but costs need it, as it's how the tariff is found. The live view needs it too, to find the Home Mini.
+- `OCTOPUS_DEVICE_ID`: optional. The Home Mini's device ID, if it shouldn't be looked up from the account (for instance if the account has more than one).
 - `OCTOPUS_NIGHT_HOURS`: for two-rate (Economy 7 style, `E-2R-…`) tariffs only, when the night rate applies, in GMT, like `00:30-07:30` (the default if it's not set). Night hours depend on the meter; they're on the bill or the Octopus app's tariff details. The meter stays on GMT all year, so in summer the night rate is an hour later on the clock.
 
 Then **Deploys → Trigger deploy**.
 
 - **Costs** use the real tariff for every half hour (so Agile and Go are priced right), plus the daily standing charge, with VAT, assuming payment by direct debit. Two-rate tariffs use the night price during `OCTOPUS_NIGHT_HOURS` and the day price otherwise. Costs that couldn't all be priced show with a "~".
-- **Today** is usually empty: smart meter readings reach Octopus about a day later. The panel says how far the readings go.
+- **Today** comes from the Home Mini while it's reporting (labelled "Today (live)"): its use and unit costs, plus the standing charge. Without it, Today is usually empty, as the meter's half-hourly readings reach Octopus about a day later; the panel says how far those go.
+- **Live view:** the Home Mini's readings come from Octopus's GraphQL API, which reports about every 10 seconds, usually a minute or so behind. If the newest reading is more than 5 minutes old, the panel says the Home Mini may be offline. Every update is one request to the Netlify function, so leaving the profile open in a visible tab uses about 360 an hour; a hidden tab uses none.
 - The summary is kept for 30 minutes so Octopus isn't asked on every visit; **Refresh** asks again straight away.
 
 ### Adding a new page
