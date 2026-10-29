@@ -133,7 +133,7 @@
 /* ---------- Admin panel (the admin's own profile only) ---------- */
 
 .profile-admin {
-  max-width: 40rem;
+  max-width: 76rem;
   margin-top: 1.5rem;
   border: 1px solid var(--site-line);
   border-radius: 6px;
@@ -150,6 +150,18 @@
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
+}
+
+/* Electricity on the left, the Discord bot on the right; one column below 1000px. */
+.profile-admin-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 40rem) minmax(0, 1fr);
+  gap: 1.75rem;
+  align-items: start;
+}
+
+@media (max-width: 1000px) {
+  .profile-admin-columns { grid-template-columns: minmax(0, 1fr); gap: 0.5rem; }
 }
 
 .profile-admin-title {

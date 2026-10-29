@@ -54,14 +54,21 @@
           <h2 class="profile-admin-title" id="adminPanelTitle">Admin panel</h2>
           <button class="profile-button" type="button" id="energyRefresh">Refresh</button>
         </div>
-        <h3 class="profile-admin-subtitle">Electricity (Octopus)</h3>
-        <div class="energy-live" id="energyLive"></div>
-        <ul class="energy-tiles" id="energyTiles"></ul>
-        <p class="profile-admin-note" id="energyNote" role="status">Loading…</p>
-        <h3 class="profile-admin-subtitle">Half-hourly use</h3>
-        <div class="energy-chart" id="energyChart"></div>
-        <h3 class="profile-admin-subtitle">Discord nickname bot</h3>
-        <div class="discord-bot" id="discordBot"></div>
+        <!-- Electricity on the left, the Discord bot on the right (stacked on narrow screens). -->
+        <div class="profile-admin-columns">
+          <div class="profile-admin-column">
+            <h3 class="profile-admin-subtitle">Electricity (Octopus)</h3>
+            <div class="energy-live" id="energyLive"></div>
+            <ul class="energy-tiles" id="energyTiles"></ul>
+            <p class="profile-admin-note" id="energyNote" role="status">Loading…</p>
+            <h3 class="profile-admin-subtitle">Half-hourly use</h3>
+            <div class="energy-chart" id="energyChart"></div>
+          </div>
+          <div class="profile-admin-column">
+            <h3 class="profile-admin-subtitle">Discord nickname bot</h3>
+            <div class="discord-bot" id="discordBot"></div>
+          </div>
+        </div>
       </section>
 
   <script src="js/energy-chart.js"></script>
