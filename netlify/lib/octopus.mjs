@@ -426,10 +426,12 @@ export async function readLiveEnergy(store, now = Date.now()) {
     const deviceId = await homeMiniId(context);
     // grouping is an enum, so it goes in the query itself rather than as a variable.
     // TelemetryGrouping has no half-hour value, so today's total is summed from five-minute steps.
-    data = await graphql(context, `query live($deviceId: String!, $from: DateTime!, $midnight: DateTime!, $now: DateTime!) {
+    // Octopus rejects a declared variable that isn't used, so $midnight is only there
+    // (and only sent) when today's total is part of the request.
+    data = await graphql(context, `query live($deviceId: String!, $from: DateTime!, $now: DateTime!${todayDue ? ', $midnight: DateTime!' : ''}) {
       recent: smartMeterTelemetry(deviceId: $deviceId, grouping: TEN_SECONDS, start: $from, end: $now) { readAt demand }
       ${todayDue ? 'today: smartMeterTelemetry(deviceId: $deviceId, grouping: FIVE_MINUTES, start: $midnight, end: $now) { consumptionDelta costDeltaWithTax }' : ''}
-    }`, { deviceId, from: iso(from), midnight: iso(midnight), now: iso(now) });
+    }`, { deviceId, from: iso(from), now: iso(now), ...(todayDue ? { midnight: iso(midnight) } : {}) });
   } catch (error) {
     if (!error.rateLimited) throw error;
     const blockedUntil = now + RATE_LIMIT_PAUSE_MS;
