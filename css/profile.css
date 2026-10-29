@@ -563,6 +563,50 @@
   display: none;
 }
 
+.bot-countdown {
+  color: var(--site-muted);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.bot-log-title {
+  margin-top: 0.7rem;
+}
+
+.bot-log {
+  max-height: 9.5rem;
+  margin-top: 0.3rem;
+  overflow-y: auto;
+  border: 1px solid var(--site-line);
+  border-radius: 4px;
+  padding: 0.4rem 0.55rem;
+  background: var(--site-field-bg);
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
+.bot-log-line {
+  display: flex;
+  gap: 0.6rem;
+  color: var(--site-ink);
+  overflow-wrap: anywhere;
+}
+
+.bot-log-line.is-error {
+  color: #ef8a80;
+}
+
+.bot-log-time {
+  flex: none;
+  color: var(--site-muted);
+}
+
+.bot-log-empty {
+  color: var(--site-muted);
+}
+
 .bot-form {
   display: grid;
   gap: 0.2rem;

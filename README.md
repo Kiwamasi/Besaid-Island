@@ -89,10 +89,10 @@ Then **Deploys → Trigger deploy**.
 
 ### Discord nickname bot
 
-The admin panel's last section controls a Discord bot that sets Kiwamari's nickname in chosen servers to the Home Mini's reading, like "Kiwamari 1.24 kW" (or "Kiwamari 450 W" under 1 kW). Only Kiwamari sees it, and the Netlify service refuses everyone else.
+The admin panel's last section controls a Discord bot that sets Kiwamari's nickname in chosen servers to the Home Mini's reading, like "Kiwamari 1.24kW ⚡" (or "Kiwamari 450W ⚡" under 1 kW). Only Kiwamari sees it, and the Netlify service refuses everyone else.
 
 - **How it runs:** the bot is a Discord application invited to each server. It never stays connected to Discord, so it shows as offline there. Instead, the scheduled Netlify job sets the nickname through Discord's API with the bot's token, using the reading it just saved. It skips Discord when the nickname hasn't changed. Nothing needs to run on a PC.
-- **Panel:** Invite to a server, Pause / Resume, the name before the reading (up to 23 characters), your Discord user ID, which servers, how often (every 1 to 60 minutes), and whether to put your name back when paused. It shows the last nickname set and the last error, such as Discord refusing.
+- **Panel:** Invite to a server, Pause / Resume, the name before the reading (up to 22 characters), your Discord user ID, which servers, how often (every 1 to 60 minutes), and whether to put your name back when paused. It shows the last nickname set and the last error, such as Discord refusing, with a countdown to the next run; it refreshes a few seconds after each run (the job runs at the top of every minute) while the tab is visible, without asking Discord or Octopus. A log console underneath lists the last 50 events: settings changes (paused, resumed, name changed, …), each nickname set, and errors, each logged once when it starts and once when it clears ("Working again").
 - **Readings over 10 minutes old** aren't put in a nickname; it's left as it is until the Home Mini is back.
 
 Setup:

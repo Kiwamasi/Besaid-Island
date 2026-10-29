@@ -1,6 +1,6 @@
 // The Discord nickname bot ("wattnick"): sets Kiwamari's nickname in chosen Discord
 // servers to the house's live electricity use from the Octopus Home Mini, like
-// "Kiwamari 1.24 kW" (or "Kiwamari 450 W" under 1 kW).
+// "Kiwamari 1.24kW ⚡" (or "Kiwamari 450W ⚡" under 1 kW).
 //
 // The bot is a Discord application invited to each server with Manage Nicknames. It
 // never stays connected to Discord (so it shows as offline there): changing a nickname
@@ -17,6 +17,9 @@
 //   SETTINGS_KEY  { enabled, nickBase, userId, guildIds, intervalMinutes, restoreOnPause }
 //   STATUS_KEY    { lastRunAt, watts, readAt, nicks: { guildId: nickname }, lastNickAt,
 //                   restored, lastError: { at, message } | null }
+//   LOG_KEY       [{ at, message }], newest first, at most MAX_LOG: settings changes,
+//                 nicknames set and errors (each error once, not every minute), for the
+//                 panel's log console
 
 import { octopusConfigured, readLiveEnergy } from './octopus.mjs';
 
@@ -24,11 +27,13 @@ const DISCORD_API = 'https://discord.com/api/v10';
 const REQUEST_TIMEOUT_MS = 10000;
 const SETTINGS_KEY = 'wattnick-settings';
 const STATUS_KEY = 'wattnick-status';
+const LOG_KEY = 'wattnick-log';
+const MAX_LOG = 50;
 // Manage Nicknames, the only permission the bot asks for when invited.
 const MANAGE_NICKNAMES = 1 << 27;
-// Discord nicknames are at most 32 characters; " 12.34 kW" takes 9 of them.
+// Discord nicknames are at most 32 characters; " 12.34kW ⚡" takes 10 of them.
 const MAX_NICK = 32;
-const MAX_NICK_BASE = MAX_NICK - 9;
+const MAX_NICK_BASE = MAX_NICK - 10;
 const MAX_GUILDS = 10;
 const INTERVALS = [1, 2, 5, 10, 15, 30, 60];
 // A reading older than this isn't put in a nickname: the Home Mini has probably
@@ -73,13 +78,15 @@ async function discord(method, path, body) {
   return data;
 }
 
-// "450 W" under 1 kW, "1.24 kW" from there.
+// "450W ⚡" under 1 kW, "1.24kW ⚡" from there.
 function formatWatts(watts) {
-  return watts < 1000 ? `${Math.round(watts)} W` : `${(watts / 1000).toFixed(2)} kW`;
+  return `${watts < 1000 ? `${Math.round(watts)}W` : `${(watts / 1000).toFixed(2)}kW`} ⚡`;
 }
 
+// MAX_NICK_BASE leaves room for the reading. A name saved when it allowed more is
+// trimmed here, rather than the reading being cut off.
 function nicknameFor(base, watts) {
-  return (base ? `${base} ${formatWatts(watts)}` : formatWatts(watts)).slice(0, MAX_NICK);
+  return base ? `${base.slice(0, MAX_NICK_BASE).trim()} ${formatWatts(watts)}` : formatWatts(watts);
 }
 
 async function readSettings(store) {
@@ -127,20 +134,41 @@ function cleanSettings(input, current) {
 
 // Sets the nickname (null removes it) in every chosen server where it differs from
 // the last one set. Records each success in next.nicks; throws the failures together.
+// Returns how many servers it was changed in.
 async function setNicknames(settings, nick, status, next) {
   next.nicks = { ...(status.nicks || {}) };
   const failures = [];
+  let changed = 0;
   for (const guildId of settings.guildIds) {
     if (next.nicks[guildId] === nick) continue;
     try {
       await discord('PATCH', `/guilds/${guildId}/members/${settings.userId}`, { nick });
       next.nicks[guildId] = nick;
+      changed++;
     } catch (error) {
       failures.push(`${guildId}: ${error.message}`);
     }
   }
   if (failures.length) throw new Error(`Discord refused: ${failures.join('; ')}`);
+  return changed;
 }
+
+// Adds lines to the log console's list, newest first. The scheduled run and a settings
+// save can write at the same moment, so it only writes over the version it read.
+async function appendLog(store, messages, now) {
+  if (!messages.length) return;
+  const entries = messages.map(message => ({ at: now, message })).reverse();
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const existing = await store.getWithMetadata(LOG_KEY, { type: 'json' });
+    const list = [...entries, ...(Array.isArray(existing?.data) ? existing.data : [])].slice(0, MAX_LOG);
+    const result = existing
+      ? await store.setJSON(LOG_KEY, list, { onlyIfMatch: existing.etag })
+      : await store.setJSON(LOG_KEY, list, { onlyIfNew: true });
+    if (result.modified) return;
+  }
+}
+
+const servers = count => (count === 1 ? '1 server' : `${count} servers`);
 
 // Once a minute, from netlify/functions/wattnick.mjs. store is the site-stats store.
 export async function runWattnick(store, now = Date.now()) {
@@ -161,11 +189,17 @@ export async function runWattnick(store, now = Date.now()) {
   const settings = await readSettings(store);
   const status = (await store.get(STATUS_KEY, { type: 'json' })) || {};
   const next = { ...status, lastRunAt: now, lastError: null };
+  const log = [];
   try {
     if (!settings.enabled) {
       // Paused: put the plain name back once (or remove the nickname if there's none).
       if (settings.restoreOnPause && !status.restored && settings.userId && settings.guildIds.length) {
-        await setNicknames(settings, settings.nickBase || null, status, next);
+        const changed = await setNicknames(settings, settings.nickBase || null, status, next);
+        if (changed) {
+          log.push(settings.nickBase
+            ? `Paused: name put back to "${settings.nickBase}" in ${servers(changed)}`
+            : `Paused: nickname removed in ${servers(changed)}`);
+        }
       }
       next.restored = true;
     } else {
@@ -176,14 +210,30 @@ export async function runWattnick(store, now = Date.now()) {
         if (now - live.readAt > STALE_MS) throw new Error('The newest Home Mini reading is over 10 minutes old, so the nickname was left as it is');
         next.watts = live.demand;
         next.readAt = live.readAt;
-        await setNicknames(settings, nicknameFor(settings.nickBase, live.demand), status, next);
+        const nick = nicknameFor(settings.nickBase, live.demand);
+        const changed = await setNicknames(settings, nick, status, next);
+        if (changed) log.push(`Nickname set to "${nick}" in ${servers(changed)}`);
         next.lastNickAt = now;
       }
     }
   } catch (error) {
     next.lastError = { at: now, message: error.message };
   }
+  // Each error once when it starts (or changes), and once when it clears.
+  if (next.lastError && next.lastError.message !== status.lastError?.message) log.push(`Error: ${next.lastError.message}`);
+  if (!next.lastError && status.lastError) log.push('Working again');
   await store.setJSON(STATUS_KEY, next);
+  await appendLog(store, log, now);
+}
+
+// The panel's status, without asking Discord: polled about once a minute by the panel.
+export async function readWattnickStatus(store) {
+  const [settings, status, log] = await Promise.all([
+    readSettings(store),
+    store.get(STATUS_KEY, { type: 'json' }),
+    store.get(LOG_KEY, { type: 'json' })
+  ]);
+  return { settings, status: status || null, log: Array.isArray(log) ? log : [] };
 }
 
 // For the profile panel: whether it's set up, the invite link, settings, status, and
@@ -191,10 +241,7 @@ export async function runWattnick(store, now = Date.now()) {
 export async function readWattnickPanel(store) {
   if (!discordConfigured()) return { configured: false };
   const id = clientId();
-  const [settings, status] = await Promise.all([
-    readSettings(store),
-    store.get(STATUS_KEY, { type: 'json' })
-  ]);
+  const { settings, status, log } = await readWattnickStatus(store);
   let guilds = [];
   let guildError = null;
   try {
@@ -208,16 +255,35 @@ export async function readWattnickPanel(store) {
       ? `https://discord.com/oauth2/authorize?client_id=${id}&scope=bot&permissions=${MANAGE_NICKNAMES}`
       : null,
     settings,
-    status: status || null,
+    status,
+    log,
     guilds,
     guildError,
     limits: { maxNickBase: MAX_NICK_BASE, intervals: INTERVALS }
   };
 }
 
+// What changed, in words, for the log console.
+function describeChanges(before, after) {
+  const changes = [];
+  if (after.enabled !== before.enabled) changes.push(after.enabled ? 'Bot resumed' : 'Bot paused');
+  if (after.nickBase !== before.nickBase) changes.push(after.nickBase ? `Name changed to "${after.nickBase}"` : 'Name cleared');
+  if (after.userId !== before.userId) changes.push(after.userId ? 'Discord user ID changed' : 'Discord user ID cleared');
+  if (after.guildIds.join() !== before.guildIds.join()) changes.push(`Servers changed (${servers(after.guildIds.length)} chosen)`);
+  if (after.intervalMinutes !== before.intervalMinutes) {
+    changes.push(`Updates every ${after.intervalMinutes === 1 ? 'minute' : `${after.intervalMinutes} minutes`}`);
+  }
+  if (after.restoreOnPause !== before.restoreOnPause) {
+    changes.push(`Put name back when paused: ${after.restoreOnPause ? 'on' : 'off'}`);
+  }
+  return changes.length ? changes : ['Settings saved (nothing changed)'];
+}
+
 export async function saveWattnickSettings(store, input) {
-  const settings = cleanSettings(input || {}, await readSettings(store));
+  const before = await readSettings(store);
+  const settings = cleanSettings(input || {}, before);
   await store.setJSON(SETTINGS_KEY, settings);
+  await appendLog(store, describeChanges(before, settings), Date.now());
   // A changed name or server list should be applied on the next run, not skipped.
   if (settings.enabled) {
     const status = (await store.get(STATUS_KEY, { type: 'json' })) || {};

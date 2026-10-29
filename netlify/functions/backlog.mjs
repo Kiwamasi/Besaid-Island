@@ -2,7 +2,7 @@ import { getStore } from '@netlify/blobs';
 import { createHmac, randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import { octopusConfigured, readEnergySummary, readSavedLive } from '../lib/octopus.mjs';
-import { readWattnickPanel, saveWattnickSettings } from '../lib/wattnick.mjs';
+import { discordConfigured, readWattnickPanel, readWattnickStatus, saveWattnickSettings } from '../lib/wattnick.mjs';
 
 const STORE_NAME = 'public-game-backlog';
 const ACCOUNT_STORE_NAME = 'backlog-accounts';
@@ -761,8 +761,14 @@ export default async (request, context) => {
       }
 
       // ?wattnick: the Discord nickname bot's settings and status, for the admin panel.
+      // ?wattnick=status leaves out the servers list, so it doesn't ask Discord: the
+      // panel polls it once a minute for the status line and log console.
       if (params.has('wattnick')) {
         if (!session?.isAdmin) return respond(request, 403, { error: 'Only the admin can control the Discord bot' });
+        if (params.get('wattnick') === 'status') {
+          if (!discordConfigured()) return respond(request, 200, { configured: false });
+          return respond(request, 200, { configured: true, ...(await readWattnickStatus(statsStore())) });
+        }
         return respond(request, 200, await readWattnickPanel(statsStore()));
       }
 

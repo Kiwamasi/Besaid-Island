@@ -310,10 +310,18 @@
           configured: true,
           inviteUrl: 'https://discord.com/oauth2/authorize?client_id=000000000000000000&scope=bot&permissions=134217728',
           settings: { enabled: true, nickBase: 'Kiwamari', userId: '123456789012345678', guildIds: ['111111111111111111'], intervalMinutes: 1, restoreOnPause: true },
-          status: { lastRunAt: now - 20000, lastNickAt: now - 20000, watts: 426, nicks: { '111111111111111111': 'Kiwamari 426 W' }, lastError: null },
+          status: { lastRunAt: now - 20000, lastNickAt: now - 20000, watts: 426, nicks: { '111111111111111111': 'Kiwamari 426W ⚡' }, lastError: null },
           guilds: [{ id: '111111111111111111', name: 'Besaid Island' }, { id: '222222222222222222', name: 'Gaming Friends' }],
+          log: [
+            { at: now - 20000, message: 'Nickname set to "Kiwamari 426W ⚡" in 1 server' },
+            { at: now - 80000, message: 'Nickname set to "Kiwamari 1.31kW ⚡" in 1 server' },
+            { at: now - 140000, message: 'Working again' },
+            { at: now - 200000, message: 'Error: Discord refused: 111111111111111111: Missing Permissions' },
+            { at: now - 260000, message: 'Bot resumed' },
+            { at: now - 262000, message: 'Name changed to "Kiwamari"' }
+          ],
           guildError: null,
-          limits: { maxNickBase: 23, intervals: [1, 2, 5, 10, 15, 30, 60] }
+          limits: { maxNickBase: 22, intervals: [1, 2, 5, 10, 15, 30, 60] }
         });
       }
       if (url.searchParams.has('energy-live')) {
