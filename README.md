@@ -65,7 +65,7 @@ The key stays on Netlify; it never goes in this repo or the pages.
 
 ### Electricity (Octopus Energy)
 
-Kiwamari's profile has an admin panel, seen only by Kiwamari. At the top is a live view from the Octopus Home Mini, like the one in the Octopus app: the power being used now, a line of the last hour's demand (hover it, or focus it and use the arrow keys, to read any moment; arrow keys step a minute at a time), and today's use and cost so far. It updates every 10 seconds while the tab is open and visible. Below it are electricity use and costs for today, yesterday, this week, this month and this year, and a half-hourly chart of each of the last 31 days that have readings (previous/next day buttons; hover a column, or focus the chart and use the arrow keys, for its time, kWh and cost; night-rate hours are shaded; "Show as table" lists every half hour). The Netlify service gets them from the [Octopus Energy API](https://developer.octopus.energy/rest/) (`netlify/lib/octopus.mjs`) and refuses anyone but the admin. The API key and meter details stay on Netlify; they never go in this repo or the pages.
+Kiwamari's profile has an admin panel, seen only by Kiwamari. At the top is a live view from the Octopus Home Mini, like the one in the Octopus app: the power being used now, a line of the last hour's demand (hover it, or focus it and use the arrow keys, to read any moment; arrow keys step a minute at a time), and today's use and cost so far. It updates every 30 seconds while the tab is open and visible. Below it are electricity use and costs for today, yesterday, this week, this month and this year, and a half-hourly chart of each of the last 31 days that have readings (previous/next day buttons; hover a column, or focus the chart and use the arrow keys, for its time, kWh and cost; night-rate hours are shaded; "Show as table" lists every half hour). The Netlify service gets them from the [Octopus Energy API](https://developer.octopus.energy/rest/) (`netlify/lib/octopus.mjs`) and refuses anyone but the admin. The API key and meter details stay on Netlify; they never go in this repo or the pages.
 
 Setup: in Netlify, **Site configuration → Environment variables**, add:
 
@@ -80,8 +80,12 @@ Then **Deploys → Trigger deploy**.
 
 - **Costs** use the real tariff for every half hour (so Agile and Go are priced right), plus the daily standing charge, with VAT, assuming payment by direct debit. Two-rate tariffs use the night price during `OCTOPUS_NIGHT_HOURS` and the day price otherwise. Costs that couldn't all be priced show with a "~".
 - **Today** comes from the Home Mini while it's reporting (labelled "Today (live)"): its use and unit costs, plus the standing charge. Without it, Today is usually empty, as the meter's half-hourly readings reach Octopus about a day later; the panel says how far those go.
-- **Live view:** the Home Mini's readings come from Octopus's GraphQL API, which reports about every 10 seconds, usually a minute or so behind. If the newest reading is more than 5 minutes old, the panel says the Home Mini may be offline. Every update is one request to the Netlify function, so leaving the profile open in a visible tab uses about 360 an hour; a hidden tab uses none.
-- The summary is kept for 30 minutes so Octopus isn't asked on every visit; **Refresh** asks again straight away.
+- **Live view:** the Home Mini's readings come from Octopus's GraphQL API, which has a reading for about every 10 seconds, usually a minute or so behind. If the newest reading is more than 5 minutes old, the panel says the Home Mini may be offline.
+- **Keeping within Octopus's limits:** Octopus only allows so many requests, so:
+  - The live view asks Octopus at most once every 25 seconds, however many tabs are open (they share the last answer), and only for the readings since the last time. Today's total is refreshed at most every 10 minutes, in the same request. That's about 120 requests an hour while the profile is open in a visible tab, and none when it isn't.
+  - The Octopus sign-in (an hour long) and the Home Mini's ID are saved on Netlify, so it signs in about once an hour and looks the Home Mini up once.
+  - If Octopus says "too many requests", the live view pauses for 10 minutes and says until when.
+  - The summary (tiles and half-hourly chart) takes about 4 or 5 requests and is kept for 30 minutes. **Refresh** asks again only if it's more than 5 minutes old.
 
 ### Adding a new page
 

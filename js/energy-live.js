@@ -1,7 +1,7 @@
 // Live electricity use from the Octopus Home Mini, for the admin panel on the profile
 // page (js/profile.js), drawn like the live graph in the Octopus app: the power being
 // drawn now in large type, and a line of the last hour's demand under it. It asks the
-// site API again every 10 seconds while the tab is visible, and pauses while it's hidden.
+// site API again every 30 seconds while the tab is visible, and pauses while it's hidden.
 // Hovering the line (or the arrow keys once the chart has focus) reads off any moment.
 //
 // window.energyLive.start(container, { load, onUpdate }):
@@ -11,9 +11,14 @@
 // window.energyLive.stop(), window.energyLive.refresh()
 (() => {
   const SVG = 'http://www.w3.org/2000/svg';
-  const POLL_MS = 10000;
+  // Octopus limits how often it can be asked, and readings reach it a minute or so late
+  // anyway, so every 30 seconds is plenty.
+  const POLL_MS = 30000;
   // After an error, wait longer before asking again.
-  const RETRY_MS = 30000;
+  const RETRY_MS = 60000;
+  // After Octopus says "too many requests" (HTTP 429 from the site API), which pauses
+  // live use on the server for 10 minutes.
+  const RATE_LIMIT_WAIT_MS = 10 * 60 * 1000;
   const WINDOW_MS = 60 * 60 * 1000;
   // Readings further apart than this leave a gap in the line rather than joining up.
   const GAP_MS = 45000;
@@ -290,7 +295,7 @@
         onUpdate(live);
       } catch (error) {
         if (current.stopped || version !== current.version) return;
-        wait = RETRY_MS;
+        wait = error.status === 429 ? RATE_LIMIT_WAIT_MS : RETRY_MS;
         value.textContent = '–';
         label.textContent = error.message;
         now.classList.add('is-stale');

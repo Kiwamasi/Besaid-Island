@@ -1,7 +1,7 @@
 import { getStore } from '@netlify/blobs';
 import { createHmac, randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
-import { octopusConfigured, readEnergySummary, readLiveEnergy } from '../lib/octopus.mjs';
+import { OctopusRateLimit, octopusConfigured, readEnergySummary, readLiveEnergy } from '../lib/octopus.mjs';
 
 const STORE_NAME = 'public-game-backlog';
 const ACCOUNT_STORE_NAME = 'backlog-accounts';
@@ -52,6 +52,9 @@ const MAX_RECENT = 20;
 // arrive about once a day anyway. { at, summary }.
 const ENERGY_KEY = 'energy';
 const ENERGY_CACHE_MS = 30 * 60 * 1000;
+// Refresh (?energy=fresh) asks Octopus again only if the saved copy is older than this,
+// so pressing it repeatedly doesn't use up Octopus's request limit.
+const ENERGY_REFRESH_MS = 5 * 60 * 1000;
 const pacificDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' });
 const GEMINI_MODELS = [process.env.GEMINI_MODEL, 'gemini-flash-latest', 'gemini-flash-lite-latest'].filter(Boolean);
 // How long to wait for Gemini to answer. Netlify stops a request after 60 seconds,
@@ -711,7 +714,8 @@ export default async (request, context) => {
       }
 
       // ?energy: the admin's electricity use and costs, for their profile's admin panel.
-      // Private: only the admin gets it. ?energy=fresh skips the saved copy.
+      // Private: only the admin gets it. ?energy=fresh skips the saved copy, once it's
+      // ENERGY_REFRESH_MS old.
       if (params.has('energy')) {
         if (!session?.isAdmin) return respond(request, 403, { error: 'Only the admin can see energy use' });
         if (!octopusConfigured()) {
@@ -720,7 +724,8 @@ export default async (request, context) => {
           });
         }
         const saved = await statsStore().get(ENERGY_KEY, { type: 'json' });
-        if (saved && params.get('energy') !== 'fresh' && Date.now() - saved.at < ENERGY_CACHE_MS) {
+        const keepFor = params.get('energy') === 'fresh' ? ENERGY_REFRESH_MS : ENERGY_CACHE_MS;
+        if (saved && Date.now() - saved.at < keepFor) {
           return respond(request, 200, { ...saved.summary, updatedAt: saved.at });
         }
         try {
@@ -735,7 +740,9 @@ export default async (request, context) => {
       }
 
       // ?energy-live: the admin's live use from the Octopus Home Mini, asked for every
-      // few seconds by the profile's live panel. Not saved; only the admin gets it.
+      // 30 seconds by the profile's live panel. Only the admin gets it. readLiveEnergy
+      // keeps its answer (and the Octopus sign-in) in the stats store, so open tabs
+      // share one request to Octopus.
       if (params.has('energy-live')) {
         if (!session?.isAdmin) return respond(request, 403, { error: 'Only the admin can see energy use' });
         if (!octopusConfigured()) {
@@ -744,8 +751,11 @@ export default async (request, context) => {
           });
         }
         try {
-          return respond(request, 200, { ...(await readLiveEnergy()), updatedAt: Date.now() });
+          return respond(request, 200, await readLiveEnergy(statsStore()));
         } catch (error) {
+          if (error instanceof OctopusRateLimit) {
+            return respond(request, 429, { error: error.message, retryAt: error.until });
+          }
           console.error('Octopus Home Mini request failed', error);
           return respond(request, 502, { error: `Couldn't get live use from the Home Mini: ${error.message}` });
         }

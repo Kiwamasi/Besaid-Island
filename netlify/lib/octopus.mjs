@@ -59,19 +59,45 @@ async function getAll(path, params) {
 const iso = time => new Date(time).toISOString();
 
 // ---------- Octopus GraphQL API (Home Mini) ----------
+//
+// Octopus limits how often it can be asked, so what can be kept is kept, in the site's
+// own (private) Netlify Blobs store that backlog.mjs passes in, rather than in memory:
+// Netlify often starts a fresh copy of the function, which would forget it.
+//   AUTH_KEY  { token, expires, deviceId }: the GraphQL sign-in token (an hour long, so
+//             about one sign-in an hour) and the Home Mini's ID (looked up once)
+//   LIVE_KEY  { at, points, today, blockedUntil }: the last live answer, shared by every
+//             open tab, and when Octopus last said "too many requests"
 
 const GRAPHQL = 'https://api.octopus.energy/v1/graphql/';
+const AUTH_KEY = 'octopus-auth';
+const LIVE_KEY = 'energy-live';
 // Kraken tokens last an hour; a new one is fetched a little before that.
 const TOKEN_LIFETIME_MS = 50 * 60 * 1000;
 // The live chart covers this much of the recent past.
 const LIVE_WINDOW_MS = 60 * 60 * 1000;
-// Several open tabs (or a quick Refresh) within this long share one answer.
-const LIVE_CACHE_MS = 8000;
+// The page asks every 30 seconds. Asked again within this long (another tab, Refresh),
+// the saved answer is given without asking Octopus.
+const LIVE_FRESH_MS = 25000;
+// Readings reach Octopus a minute or more late, sometimes in batches, so each update
+// asks from this long before the newest reading already kept, to catch late ones.
+const LIVE_OVERLAP_MS = 3 * 60 * 1000;
+// Today's total is asked for at most this often, in the same request as the readings.
+const TODAY_REFRESH_MS = 10 * 60 * 1000;
+// After Octopus says "too many requests", it isn't asked again for this long.
+const RATE_LIMIT_PAUSE_MS = 10 * 60 * 1000;
 
-// Kept between requests while Netlify keeps the function warm.
-let kraken = null; // { token, expires }
-let homeMiniId = null;
-let liveCache = null; // { at, live }
+const ukTime = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit' });
+
+// Thrown when Octopus is refusing requests for now; the site API answers HTTP 429.
+export class OctopusRateLimit extends Error {
+  constructor(until) {
+    super(`Octopus says too many requests, so live use is paused until ${ukTime.format(until)}`);
+    this.until = until;
+  }
+}
+
+const RATE_LIMIT_PATTERN = /too many requests|rate.?limit|throttl/i;
+const AUTH_PATTERN = /jwt|token|signature|expired|authenticat|unauthori[sz]ed/i;
 
 async function graphqlPost(query, variables, token) {
   const response = await fetch(GRAPHQL, {
@@ -80,44 +106,51 @@ async function graphqlPost(query, variables, token) {
     body: JSON.stringify({ query, variables }),
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
   });
-  if (!response.ok) throw new Error(`Octopus answered HTTP ${response.status} for GraphQL`);
-  const result = await response.json();
-  if (result.errors?.length) throw new Error(result.errors.map(error => error.message).join('; '));
+  const result = await response.json().catch(() => null);
+  const message = result?.errors?.map(error => error.message).join('; ') || '';
+  if (response.status === 429 || RATE_LIMIT_PATTERN.test(message)) {
+    throw Object.assign(new Error(message || 'Too many requests'), { rateLimited: true });
+  }
+  if (!response.ok && !message) throw new Error(`Octopus answered HTTP ${response.status} for GraphQL`);
+  if (message) throw Object.assign(new Error(message), { auth: AUTH_PATTERN.test(message) });
   return result.data;
 }
 
-async function krakenToken(renew = false) {
-  if (!renew && kraken && kraken.expires > Date.now()) return kraken.token;
+// A new sign-in token, saved for every copy of the function to use.
+async function renewToken(context) {
   const data = await graphqlPost(
     'mutation krakenToken($apiKey: String!) { obtainKrakenToken(input: { APIKey: $apiKey }) { token } }',
     { apiKey: process.env.OCTOPUS_API_KEY }
   );
   const token = data?.obtainKrakenToken?.token;
   if (!token) throw new Error("Octopus didn't give a GraphQL token for that API key");
-  kraken = { token, expires: Date.now() + TOKEN_LIFETIME_MS };
-  return token;
+  context.auth = { ...context.auth, token, expires: Date.now() + TOKEN_LIFETIME_MS };
+  await context.store.setJSON(AUTH_KEY, context.auth);
 }
 
-// A signed-in GraphQL query. A saved token Octopus no longer accepts is renewed once.
-async function graphql(query, variables = {}) {
-  const saved = Boolean(kraken && kraken.expires > Date.now());
+// A signed-in query. Only a refused token is renewed and the query tried again; any
+// other error (a rate limit above all) goes straight back, so it isn't made worse.
+async function graphql(context, query, variables = {}) {
+  if (!context.auth.token || context.auth.expires <= Date.now()) await renewToken(context);
   try {
-    return await graphqlPost(query, variables, await krakenToken());
+    return await graphqlPost(query, variables, context.auth.token);
   } catch (error) {
-    if (!saved) throw error;
-    return graphqlPost(query, variables, await krakenToken(true));
+    if (!error.auth) throw error;
+    await renewToken(context);
+    return graphqlPost(query, variables, context.auth.token);
   }
 }
 
 // The Home Mini's device ID: OCTOPUS_DEVICE_ID, or the smart device on the account's
-// electricity meter (the one with OCTOPUS_SERIAL, if the account has several).
-async function findHomeMini() {
+// electricity meter (the one with OCTOPUS_SERIAL, if the account has several), looked
+// up once and saved.
+async function homeMiniId(context) {
   if (process.env.OCTOPUS_DEVICE_ID) return process.env.OCTOPUS_DEVICE_ID.trim();
-  if (homeMiniId) return homeMiniId;
+  if (context.auth.deviceId) return context.auth.deviceId;
   if (!process.env.OCTOPUS_ACCOUNT) {
     throw new Error('Add OCTOPUS_ACCOUNT (or OCTOPUS_DEVICE_ID) on Netlify to find the Home Mini');
   }
-  const data = await graphql(`query homeMini($account: String!) {
+  const data = await graphql(context, `query homeMini($account: String!) {
     account(accountNumber: $account) {
       electricityAgreements(active: true) {
         meterPoint { mpan meters(includeInactive: false) { serialNumber smartDevices { deviceId } } }
@@ -129,18 +162,9 @@ async function findHomeMini() {
   const withDevice = meters.filter(meter => meter.smartDevices?.length);
   const meter = withDevice.find(each => each.serialNumber === process.env.OCTOPUS_SERIAL) || withDevice[0];
   if (!meter) throw new Error('No Home Mini (smart device) found on the Octopus account');
-  homeMiniId = meter.smartDevices[0].deviceId;
-  return homeMiniId;
-}
-
-async function telemetry(deviceId, grouping, from, to) {
-  // grouping is an enum, so it goes in the query itself rather than as a variable.
-  const data = await graphql(`query telemetry($deviceId: String!, $start: DateTime!, $end: DateTime!) {
-    smartMeterTelemetry(deviceId: $deviceId, grouping: ${grouping}, start: $start, end: $end) {
-      readAt demand consumptionDelta costDeltaWithTax
-    }
-  }`, { deviceId, start: iso(from), end: iso(to) });
-  return data?.smartMeterTelemetry || [];
+  context.auth = { ...context.auth, deviceId: meter.smartDevices[0].deviceId };
+  await context.store.setJSON(AUTH_KEY, context.auth);
+  return context.auth.deviceId;
 }
 
 // ---------- UK days ----------
@@ -230,18 +254,14 @@ function isNight(time, night) {
     : minutes >= night.start || minutes < night.end;
 }
 
-// A month at a time, side by side: a year of half-hourly prices (Agile) is about 17,500
-// rows, and Octopus gives at most 1,500 a page. kind is "standard-unit-rates" (one
-// price) or, for two-rate tariffs, "day-unit-rates" / "night-unit-rates".
+// The whole period in one request, a page at a time: most tariffs change price only a
+// few times a year, so that's one page. Half-hourly tariffs (Agile, about 17,500 prices
+// a year) take more pages, as Octopus gives at most 1,500 a page. kind is
+// "standard-unit-rates" (one price) or, for two-rate tariffs, "day-unit-rates" /
+// "night-unit-rates".
 async function unitRates(tariffCode, kind, from, to) {
-  const chunks = [];
-  for (let start = from; start < to; start = Math.min(to, start + 31 * DAY_MS)) {
-    chunks.push([start, Math.min(to, start + 31 * DAY_MS)]);
-  }
   const path = `/products/${productCode(tariffCode)}/electricity-tariffs/${tariffCode}/${kind}/`;
-  const lists = await Promise.all(chunks.map(([start, end]) =>
-    getAll(path, { period_from: iso(start), period_to: iso(end), page_size: 1500 })));
-  return cleanRates(lists.flat());
+  return cleanRates(await getAll(path, { period_from: iso(from), period_to: iso(to), page_size: 1500 }));
 }
 
 async function standingCharges(tariffCode, from, to) {
@@ -383,43 +403,75 @@ export async function readEnergySummary(now = Date.now()) {
 // points     [[time, watts], …] every 10 seconds over the last LIVE_WINDOW_MS, oldest first
 // today      { kwh, cost } since midnight UK time, cost in pence with VAT (unit rates
 //            only, no standing charge; null if Octopus didn't price it), or null if
-//            Octopus couldn't say
-export async function readLiveEnergy(now = Date.now()) {
-  if (liveCache && now - liveCache.at < LIVE_CACHE_MS) return liveCache.live;
-  const deviceId = await findHomeMini();
+//            Octopus couldn't say. Up to TODAY_REFRESH_MS old.
+//
+// One request to Octopus at most per LIVE_FRESH_MS, however many tabs are open: only
+// the readings since the last answer (plus LIVE_OVERLAP_MS), with today's total added
+// to the same request when it's due. store is the site's Netlify Blobs store.
+export async function readLiveEnergy(store, now = Date.now()) {
+  const saved = (await store.get(LIVE_KEY, { type: 'json' })) || {};
+  if (saved.blockedUntil > now) throw new OctopusRateLimit(saved.blockedUntil);
+  if (saved.at && now - saved.at < LIVE_FRESH_MS) return liveAnswer(saved);
+
+  const context = { store, auth: (await store.get(AUTH_KEY, { type: 'json' })) || {} };
+  const windowStart = now - LIVE_WINDOW_MS;
+  const kept = (saved.points || []).filter(([time]) => time >= windowStart);
+  const from = kept.length ? Math.max(windowStart, kept.at(-1)[0] - LIVE_OVERLAP_MS) : windowStart;
   const { year, month, day } = londonDate(now);
-  const [recent, sinceMidnight] = await Promise.allSettled([
-    telemetry(deviceId, 'TEN_SECONDS', now - LIVE_WINDOW_MS, now),
-    telemetry(deviceId, 'THIRTY_MINUTES', londonMidnight(year, month, day), now)
-  ]);
-  if (recent.status === 'rejected') throw recent.reason;
-  if (sinceMidnight.status === 'rejected') console.error('Home Mini daily total failed', sinceMidnight.reason);
+  const midnight = londonMidnight(year, month, day);
+  const todayDue = !saved.today || saved.today.from !== midnight || now - saved.today.at >= TODAY_REFRESH_MS;
+
+  let data;
+  try {
+    const deviceId = await homeMiniId(context);
+    // grouping is an enum, so it goes in the query itself rather than as a variable.
+    data = await graphql(context, `query live($deviceId: String!, $from: DateTime!, $midnight: DateTime!, $now: DateTime!) {
+      recent: smartMeterTelemetry(deviceId: $deviceId, grouping: TEN_SECONDS, start: $from, end: $now) { readAt demand }
+      ${todayDue ? 'today: smartMeterTelemetry(deviceId: $deviceId, grouping: THIRTY_MINUTES, start: $midnight, end: $now) { consumptionDelta costDeltaWithTax }' : ''}
+    }`, { deviceId, from: iso(from), midnight: iso(midnight), now: iso(now) });
+  } catch (error) {
+    if (!error.rateLimited) throw error;
+    const blockedUntil = now + RATE_LIMIT_PAUSE_MS;
+    await store.setJSON(LIVE_KEY, { ...saved, blockedUntil });
+    throw new OctopusRateLimit(blockedUntil);
+  }
 
   const number = value => (value === null || value === undefined || value === '' ? null : Number(value));
-  const points = recent.value
-    .map(reading => [Date.parse(reading.readAt), number(reading.demand)])
-    .filter(([time, watts]) => Number.isFinite(time) && Number.isFinite(watts))
-    .sort((first, second) => first[0] - second[0]);
-  const newest = points.at(-1);
+  // New readings replace kept ones at the same time; the rest are added.
+  const byTime = new Map(kept);
+  for (const reading of data?.recent || []) {
+    const time = Date.parse(reading.readAt);
+    const watts = number(reading.demand);
+    if (Number.isFinite(time) && Number.isFinite(watts) && time >= windowStart) byTime.set(time, watts);
+  }
+  const points = [...byTime].sort((first, second) => first[0] - second[0]);
 
-  let today = null;
-  if (sinceMidnight.status === 'fulfilled') {
+  let today = saved.today?.from === midnight ? saved.today : null;
+  if (todayDue && data?.today) {
     let wh = 0;
     let cost = 0;
-    let priced = true;
-    for (const reading of sinceMidnight.value) {
+    let priced = data.today.length > 0;
+    for (const reading of data.today) {
       wh += number(reading.consumptionDelta) || 0;
       const delta = number(reading.costDeltaWithTax);
       if (delta === null || !Number.isFinite(delta)) priced = false;
       else cost += delta;
     }
-    today = {
-      kwh: Math.round(wh) / 1000,
-      cost: priced && sinceMidnight.value.length ? Math.round(cost * 100) / 100 : null
-    };
+    today = { from: midnight, at: now, kwh: Math.round(wh) / 1000, cost: priced ? Math.round(cost * 100) / 100 : null };
   }
 
-  const live = { readAt: newest?.[0] ?? null, demand: newest?.[1] ?? null, points, today };
-  liveCache = { at: now, live };
-  return live;
+  const next = { at: now, points, today };
+  await store.setJSON(LIVE_KEY, next);
+  return liveAnswer(next);
+}
+
+function liveAnswer({ at, points, today }) {
+  const newest = points.at(-1);
+  return {
+    readAt: newest?.[0] ?? null,
+    demand: newest?.[1] ?? null,
+    points,
+    today: today ? { kwh: today.kwh, cost: today.cost } : null,
+    updatedAt: at
+  };
 }
