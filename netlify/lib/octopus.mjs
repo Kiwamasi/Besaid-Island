@@ -425,9 +425,10 @@ export async function readLiveEnergy(store, now = Date.now()) {
   try {
     const deviceId = await homeMiniId(context);
     // grouping is an enum, so it goes in the query itself rather than as a variable.
+    // TelemetryGrouping has no half-hour value, so today's total is summed from five-minute steps.
     data = await graphql(context, `query live($deviceId: String!, $from: DateTime!, $midnight: DateTime!, $now: DateTime!) {
       recent: smartMeterTelemetry(deviceId: $deviceId, grouping: TEN_SECONDS, start: $from, end: $now) { readAt demand }
-      ${todayDue ? 'today: smartMeterTelemetry(deviceId: $deviceId, grouping: THIRTY_MINUTES, start: $midnight, end: $now) { consumptionDelta costDeltaWithTax }' : ''}
+      ${todayDue ? 'today: smartMeterTelemetry(deviceId: $deviceId, grouping: FIVE_MINUTES, start: $midnight, end: $now) { consumptionDelta costDeltaWithTax }' : ''}
     }`, { deviceId, from: iso(from), midnight: iso(midnight), now: iso(now) });
   } catch (error) {
     if (!error.rateLimited) throw error;
