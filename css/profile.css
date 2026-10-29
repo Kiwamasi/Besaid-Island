@@ -504,6 +504,124 @@
   .energy-live-meta { justify-items: start; }
 }
 
+/* ---------- Discord nickname bot (js/discord-bot.js) ---------- */
+
+.discord-bot {
+  border: 1px solid var(--site-line);
+  border-radius: 6px;
+  padding: 0.8rem 0.9rem;
+  background: rgba(241, 240, 235, 0.03);
+}
+
+.bot-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+.bot-badge {
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  background: var(--site-line-strong);
+  color: var(--site-muted);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.bot-badge.is-on {
+  background: var(--site-accent);
+  color: var(--site-on-accent);
+}
+
+.bot-summary {
+  flex: 1 1 14rem;
+  color: var(--site-ink);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.bot-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.bot-invite {
+  text-decoration: none;
+}
+
+.bot-error {
+  margin-top: 0.5rem;
+  color: #ef8a80;
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.bot-error:empty {
+  display: none;
+}
+
+.bot-form {
+  display: grid;
+  gap: 0.2rem;
+  max-width: 28rem;
+  margin-top: 0.4rem;
+}
+
+.bot-field-name {
+  color: var(--site-muted);
+  font-size: 0.78rem;
+}
+
+.bot-field-hint {
+  color: var(--site-muted);
+  font-size: 0.72rem;
+}
+
+.bot-servers {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0.7rem 0 0;
+  border: 0;
+  padding: 0;
+}
+
+.bot-servers legend {
+  margin-bottom: 0.35rem;
+  padding: 0;
+}
+
+.bot-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--site-ink);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.bot-check input {
+  accent-color: var(--site-accent);
+}
+
+.bot-form > .bot-check {
+  margin-top: 0.7rem;
+}
+
+.bot-save {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.9rem;
+}
+
+.bot-save-note {
+  color: var(--site-muted);
+  font-size: 0.75rem;
+}
+
 @media (max-width: 720px) {
   .profile-main { padding: 1.25rem 1rem 2rem; }
   .profile-row { grid-template-columns: 8rem minmax(0, 1fr); }

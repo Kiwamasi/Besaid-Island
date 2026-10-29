@@ -1,7 +1,8 @@
 import { getStore } from '@netlify/blobs';
 import { createHmac, randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
-import { OctopusRateLimit, octopusConfigured, readEnergySummary, readLiveEnergy } from '../lib/octopus.mjs';
+import { octopusConfigured, readEnergySummary, readSavedLive } from '../lib/octopus.mjs';
+import { readWattnickPanel, saveWattnickSettings } from '../lib/wattnick.mjs';
 
 const STORE_NAME = 'public-game-backlog';
 const ACCOUNT_STORE_NAME = 'backlog-accounts';
@@ -740,9 +741,9 @@ export default async (request, context) => {
       }
 
       // ?energy-live: the admin's live use from the Octopus Home Mini, asked for every
-      // 30 seconds by the profile's live panel. Only the admin gets it. readLiveEnergy
-      // keeps its answer (and the Octopus sign-in) in the stats store, so open tabs
-      // share one request to Octopus.
+      // 30 seconds by the profile's live panel. Only the admin gets it. This never asks
+      // Octopus: the scheduled job (netlify/functions/wattnick.mjs) does, once a minute,
+      // and saves the answer in the stats store.
       if (params.has('energy-live')) {
         if (!session?.isAdmin) return respond(request, 403, { error: 'Only the admin can see energy use' });
         if (!octopusConfigured()) {
@@ -750,15 +751,19 @@ export default async (request, context) => {
             error: "Octopus isn't set up yet: add OCTOPUS_API_KEY, OCTOPUS_MPAN, OCTOPUS_SERIAL and OCTOPUS_ACCOUNT on Netlify"
           });
         }
-        try {
-          return respond(request, 200, await readLiveEnergy(statsStore()));
-        } catch (error) {
-          if (error instanceof OctopusRateLimit) {
-            return respond(request, 429, { error: error.message, retryAt: error.until });
-          }
-          console.error('Octopus Home Mini request failed', error);
-          return respond(request, 502, { error: `Couldn't get live use from the Home Mini: ${error.message}` });
+        const live = await readSavedLive(statsStore());
+        if (!live) {
+          return respond(request, 503, {
+            error: 'No Home Mini readings yet: the scheduled Netlify job collects them once a minute'
+          });
         }
+        return respond(request, 200, live);
+      }
+
+      // ?wattnick: the Discord nickname bot's settings and status, for the admin panel.
+      if (params.has('wattnick')) {
+        if (!session?.isAdmin) return respond(request, 403, { error: 'Only the admin can control the Discord bot' });
+        return respond(request, 200, await readWattnickPanel(statsStore()));
       }
 
       if (params.has('users')) {
@@ -819,6 +824,17 @@ export default async (request, context) => {
         await updateJson(accountsStore(), settingsKey(username), settings => ({ ...settings, color }));
       }
       return respond(request, 200, { profile: await readProfile(username) });
+    }
+
+    // Sent by the admin panel's Discord bot section: any of enabled, nickBase, userId,
+    // guildIds, intervalMinutes and restoreOnPause. Answers with the saved settings.
+    if (request.method === 'POST' && body?.action === 'wattnick-settings') {
+      if (!session.isAdmin) return respond(request, 403, { error: 'Only the admin can control the Discord bot' });
+      try {
+        return respond(request, 200, { settings: await saveWattnickSettings(statsStore(), body.settings) });
+      } catch (error) {
+        return respond(request, 400, { error: error.message });
+      }
     }
 
     if (request.method === 'POST' && body?.action === 'clear-errors') {

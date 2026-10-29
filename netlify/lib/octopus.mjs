@@ -75,8 +75,9 @@ const LIVE_KEY = 'energy-live';
 const TOKEN_LIFETIME_MS = 50 * 60 * 1000;
 // The live chart covers this much of the recent past.
 const LIVE_WINDOW_MS = 60 * 60 * 1000;
-// The page asks every 30 seconds. Asked again within this long (another tab, Refresh),
-// the saved answer is given without asking Octopus.
+// Only the scheduled job (netlify/functions/wattnick.mjs, once a minute) asks Octopus;
+// the page reads what it saved (readSavedLive). This is a guard against two runs close
+// together asking twice.
 const LIVE_FRESH_MS = 25000;
 // Readings reach Octopus a minute or more late, sometimes in batches, so each update
 // asks from this long before the newest reading already kept, to catch late ones.
@@ -405,9 +406,9 @@ export async function readEnergySummary(now = Date.now()) {
 //            only, no standing charge; null if Octopus didn't price it), or null if
 //            Octopus couldn't say. Up to TODAY_REFRESH_MS old.
 //
-// One request to Octopus at most per LIVE_FRESH_MS, however many tabs are open: only
-// the readings since the last answer (plus LIVE_OVERLAP_MS), with today's total added
-// to the same request when it's due. store is the site's Netlify Blobs store.
+// Called once a minute by the scheduled job, never by the page. One request to Octopus:
+// only the readings since the last answer (plus LIVE_OVERLAP_MS), with today's total
+// added to the same request when it's due. store is the site's Netlify Blobs store.
 export async function readLiveEnergy(store, now = Date.now()) {
   const saved = (await store.get(LIVE_KEY, { type: 'json' })) || {};
   if (saved.blockedUntil > now) throw new OctopusRateLimit(saved.blockedUntil);
@@ -466,6 +467,15 @@ export async function readLiveEnergy(store, now = Date.now()) {
   const next = { at: now, points, today };
   await store.setJSON(LIVE_KEY, next);
   return liveAnswer(next);
+}
+
+// For the profile's live view: the scheduled job's last answer, without asking Octopus.
+// null if the job hasn't saved one yet. pausedUntil is set while Octopus is refusing
+// requests ("too many requests"), when the readings stop updating.
+export async function readSavedLive(store, now = Date.now()) {
+  const saved = await store.get(LIVE_KEY, { type: 'json' });
+  if (!saved?.at) return null;
+  return { ...liveAnswer(saved), pausedUntil: saved.blockedUntil > now ? saved.blockedUntil : null };
 }
 
 function liveAnswer({ at, points, today }) {

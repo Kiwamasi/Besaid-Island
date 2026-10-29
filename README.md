@@ -82,10 +82,28 @@ Then **Deploys → Trigger deploy**.
 - **Today** comes from the Home Mini while it's reporting (labelled "Today (live)"): its use and unit costs, plus the standing charge. Without it, Today is usually empty, as the meter's half-hourly readings reach Octopus about a day later; the panel says how far those go.
 - **Live view:** the Home Mini's readings come from Octopus's GraphQL API, which has a reading for about every 10 seconds, usually a minute or so behind. If the newest reading is more than 5 minutes old, the panel says the Home Mini may be offline.
 - **Keeping within Octopus's limits:** Octopus only allows so many requests, so:
-  - The live view asks Octopus at most once every 25 seconds, however many tabs are open (they share the last answer), and only for the readings since the last time. Today's total is refreshed at most every 10 minutes, in the same request. That's about 120 requests an hour while the profile is open in a visible tab, and none when it isn't.
+  - Only a scheduled Netlify job (`netlify/functions/wattnick.mjs`) asks Octopus for Home Mini readings: once a minute, around the clock, only for the readings since the last time, with today's total refreshed at most every 10 minutes in the same request. That's about 60 requests an hour, however many tabs are open. The live view and the Discord bot both use what it saves; the live view asks the Netlify service every 30 seconds, which doesn't reach Octopus.
   - The Octopus sign-in (an hour long) and the Home Mini's ID are saved on Netlify, so it signs in about once an hour and looks the Home Mini up once.
-  - If Octopus says "too many requests", the live view pauses for 10 minutes and says until when.
+  - If Octopus says "too many requests", the job leaves it alone for 10 minutes, and the live view says until when.
   - The summary (tiles and half-hourly chart) takes about 4 or 5 requests and is kept for 30 minutes. **Refresh** asks again only if it's more than 5 minutes old.
+
+### Discord nickname bot
+
+The admin panel's last section controls a Discord bot that sets Kiwamari's nickname in chosen servers to the Home Mini's reading, like "Kiwamari 1.24 kW" (or "Kiwamari 450 W" under 1 kW). Only Kiwamari sees it, and the Netlify service refuses everyone else.
+
+- **How it runs:** the bot is a Discord application invited to each server. It never stays connected to Discord, so it shows as offline there. Instead, the scheduled Netlify job sets the nickname through Discord's API with the bot's token, using the reading it just saved. It skips Discord when the nickname hasn't changed. Nothing needs to run on a PC.
+- **Panel:** Invite to a server, Pause / Resume, the name before the reading (up to 23 characters), your Discord user ID, which servers, how often (every 1 to 60 minutes), and whether to put your name back when paused. It shows the last nickname set and the last error, such as Discord refusing.
+- **Readings over 10 minutes old** aren't put in a nickname; it's left as it is until the Home Mini is back.
+
+Setup:
+
+1. In the [Discord Developer Portal](https://discord.com/developers/applications), create an application, then under **Bot** reset and copy its token. The bot's name and avatar are set there too.
+2. In Netlify, add `DISCORD_BOT_TOKEN` (the token). Optionally add `DISCORD_CLIENT_ID` (the application ID, under General Information); without it, it's read from the token. Then **Deploys → Trigger deploy**.
+3. On your profile, click **Invite to a server** and pick the server. The bot asks only for Manage Nicknames.
+4. In that server's **Server Settings → Roles**, drag the bot's role above your highest role. Discord won't let a bot rename someone above it, or the server's owner.
+5. Fill in your Discord user ID (Developer Mode under User Settings → Advanced, then right-click your name → Copy User ID), tick the server, Save, then Resume.
+
+If the old `wattnick.py` is still running on a PC, stop it: it would ask Octopus too, on top of the job.
 
 ### Adding a new page
 

@@ -21,6 +21,7 @@ const energyNote = document.getElementById('energyNote');
 const energyRefresh = document.getElementById('energyRefresh');
 const energyChart = document.getElementById('energyChart');
 const energyLiveBox = document.getElementById('energyLive');
+const discordBotBox = document.getElementById('discordBot');
 let requestedOwner = null;
 let profile = null;
 let loadVersion = 0;
@@ -164,6 +165,7 @@ function showAdminPanel() {
   }
   if (energyShownFor !== account.user.username) {
     loadEnergy();
+    window.discordBot.show(discordBotBox, account.request);
     liveToday = null;
     window.energyLive.start(energyLiveBox, {
       load: () => account.request('GET', null, '?energy-live'),

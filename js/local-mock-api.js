@@ -303,6 +303,19 @@
       // Made-up Home Mini readings in the shape of readLiveEnergy (netlify/lib/octopus.mjs):
       // a steady base load, a fridge cycling, and a kettle now and then. Worked out from
       // the time alone, so each answer carries on from the last.
+      // Fake Discord bot panel, for UI design only.
+      if (url.searchParams.has('wattnick')) {
+        const now = Date.now();
+        return json(200, {
+          configured: true,
+          inviteUrl: 'https://discord.com/oauth2/authorize?client_id=000000000000000000&scope=bot&permissions=134217728',
+          settings: { enabled: true, nickBase: 'Kiwamari', userId: '123456789012345678', guildIds: ['111111111111111111'], intervalMinutes: 1, restoreOnPause: true },
+          status: { lastRunAt: now - 20000, lastNickAt: now - 20000, watts: 426, nicks: { '111111111111111111': 'Kiwamari 426 W' }, lastError: null },
+          guilds: [{ id: '111111111111111111', name: 'Besaid Island' }, { id: '222222222222222222', name: 'Gaming Friends' }],
+          guildError: null,
+          limits: { maxNickBase: 23, intervals: [1, 2, 5, 10, 15, 30, 60] }
+        });
+      }
       if (url.searchParams.has('energy-live')) {
         if (!user?.isAdmin) return json(403, { error: 'Only the admin can see energy use' });
         const now = Date.now();
@@ -386,6 +399,10 @@
     const session = sessionUser(options.headers);
     if (!session) return json(401, { error: 'Please sign in again' });
 
+    // Fake Discord bot settings save, for UI design only: echoes what was sent.
+    if (method === 'POST' && body?.action === 'wattnick-settings') {
+      return json(200, { settings: { enabled: true, nickBase: 'Kiwamari', userId: '123456789012345678', guildIds: ['111111111111111111'], intervalMinutes: 1, restoreOnPause: true, ...body.settings } });
+    }
     if (method === 'POST' && body?.action === 'clear-errors') {
       if (!session.isAdmin) return json(403, { error: 'Only the admin can clear errors' });
       localStorage.setItem(ERRORS_KEY, '[]');

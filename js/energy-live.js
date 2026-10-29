@@ -11,14 +11,11 @@
 // window.energyLive.stop(), window.energyLive.refresh()
 (() => {
   const SVG = 'http://www.w3.org/2000/svg';
-  // Octopus limits how often it can be asked, and readings reach it a minute or so late
-  // anyway, so every 30 seconds is plenty.
+  // The site API only hands back what the scheduled Netlify job saved from Octopus, once
+  // a minute, so asking every 30 seconds is plenty and costs no Octopus requests.
   const POLL_MS = 30000;
   // After an error, wait longer before asking again.
   const RETRY_MS = 60000;
-  // After Octopus says "too many requests" (HTTP 429 from the site API), which pauses
-  // live use on the server for 10 minutes.
-  const RATE_LIMIT_WAIT_MS = 10 * 60 * 1000;
   const WINDOW_MS = 60 * 60 * 1000;
   // Readings further apart than this leave a gap in the line rather than joining up.
   const GAP_MS = 45000;
@@ -246,9 +243,12 @@
     current.clock = setInterval(showCountdown, 1000);
 
     function render(live) {
-      const stale = !live.readAt || (live.updatedAt || Date.now()) - live.readAt > STALE_MS;
+      // Measured from now: if the scheduled job stops, the saved readings just get older.
+      const stale = !live.readAt || Date.now() - live.readAt > STALE_MS;
       value.textContent = live.demand === null ? '–' : power(live.demand);
-      label.textContent = !live.readAt
+      label.textContent = live.pausedUntil
+        ? `Octopus says too many requests: readings paused until ${timeFormat.format(live.pausedUntil)}`
+        : !live.readAt
         ? "The Home Mini hasn't reported in the last hour"
         : stale
           ? `Last reading ${secondsFormat.format(live.readAt)}: the Home Mini may be offline`
@@ -295,7 +295,7 @@
         onUpdate(live);
       } catch (error) {
         if (current.stopped || version !== current.version) return;
-        wait = error.status === 429 ? RATE_LIMIT_WAIT_MS : RETRY_MS;
+        wait = RETRY_MS;
         value.textContent = '–';
         label.textContent = error.message;
         now.classList.add('is-stale');
