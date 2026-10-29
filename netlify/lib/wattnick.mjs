@@ -14,7 +14,9 @@
 //                       it's read from the token, whose first part is the bot's ID.
 //
 // Kept in the site-stats store, set from the profile's admin panel (only the admin's):
-//   SETTINGS_KEY  { enabled, nickBase, userId, guildIds, intervalMinutes, restoreOnPause }
+//   SETTINGS_KEY  { enabled, nickBase, resetName, userId, guildIds, intervalMinutes,
+//                   restoreOnPause }. resetName is the nickname set when paused (empty:
+//                   nickBase, or no nickname if that's empty too).
 //   STATUS_KEY    { lastRunAt, watts, readAt, nicks: { guildId: nickname }, lastNickAt,
 //                   restored, lastError: { at, message } | null }
 //   LOG_KEY       [{ at, message }], newest first, at most MAX_LOG: settings changes,
@@ -40,7 +42,7 @@ const INTERVALS = [1, 2, 5, 10, 15, 30, 60];
 // stopped reporting, and the nickname is left as it is until it's back.
 const STALE_MS = 10 * 60 * 1000;
 const DEFAULT_SETTINGS = {
-  enabled: false, nickBase: '', userId: '', guildIds: [], intervalMinutes: 1, restoreOnPause: true
+  enabled: false, nickBase: '', resetName: '', userId: '', guildIds: [], intervalMinutes: 1, restoreOnPause: true
 };
 const SNOWFLAKE = /^\d{17,20}$/;
 
@@ -110,6 +112,12 @@ function cleanSettings(input, current) {
     if (nickBase.length > MAX_NICK_BASE) throw new Error(`The name can be at most ${MAX_NICK_BASE} characters, to leave room for the reading`);
     settings.nickBase = nickBase;
   }
+  if (input.resetName !== undefined) {
+    if (typeof input.resetName !== 'string') throw new Error('Invalid name for when paused');
+    const resetName = input.resetName.replace(/\s+/g, ' ').trim();
+    if (resetName.length > MAX_NICK) throw new Error(`The name for when paused can be at most ${MAX_NICK} characters`);
+    settings.resetName = resetName;
+  }
   if (input.userId !== undefined) {
     const userId = typeof input.userId === 'string' ? input.userId.trim() : '';
     if (userId && !SNOWFLAKE.test(userId)) throw new Error('A Discord user ID is 17 to 20 digits');
@@ -170,6 +178,21 @@ async function appendLog(store, messages, now) {
 
 const servers = count => (count === 1 ? '1 server' : `${count} servers`);
 
+// The nickname while paused: resetName, else nickBase, else none (null removes it).
+function pausedNick(settings) {
+  return settings.resetName || settings.nickBase || null;
+}
+
+// Puts the paused name in place where it isn't already, adding a line to log if it
+// changed anything. Throws Discord's refusals, like setNicknames.
+async function putNameBack(settings, status, next, log) {
+  const nick = pausedNick(settings);
+  const changed = await setNicknames(settings, nick, status, next);
+  if (changed) {
+    log.push(nick ? `Paused: name set to "${nick}" in ${servers(changed)}` : `Paused: nickname removed in ${servers(changed)}`);
+  }
+}
+
 // Once a minute, from netlify/functions/wattnick.mjs. store is the site-stats store.
 export async function runWattnick(store, now = Date.now()) {
   // The Home Mini reading, saved for the profile's live view whether or not the bot is on.
@@ -192,14 +215,10 @@ export async function runWattnick(store, now = Date.now()) {
   const log = [];
   try {
     if (!settings.enabled) {
-      // Paused: put the plain name back once (or remove the nickname if there's none).
+      // Paused: the paused name is normally put in place when Pause is pressed
+      // (saveWattnickSettings); this catches it if Discord refused then.
       if (settings.restoreOnPause && !status.restored && settings.userId && settings.guildIds.length) {
-        const changed = await setNicknames(settings, settings.nickBase || null, status, next);
-        if (changed) {
-          log.push(settings.nickBase
-            ? `Paused: name put back to "${settings.nickBase}" in ${servers(changed)}`
-            : `Paused: nickname removed in ${servers(changed)}`);
-        }
+        await putNameBack(settings, status, next, log);
       }
       next.restored = true;
     } else {
@@ -268,6 +287,9 @@ function describeChanges(before, after) {
   const changes = [];
   if (after.enabled !== before.enabled) changes.push(after.enabled ? 'Bot resumed' : 'Bot paused');
   if (after.nickBase !== before.nickBase) changes.push(after.nickBase ? `Name changed to "${after.nickBase}"` : 'Name cleared');
+  if (after.resetName !== before.resetName) {
+    changes.push(after.resetName ? `Name when paused changed to "${after.resetName}"` : 'Name when paused cleared');
+  }
   if (after.userId !== before.userId) changes.push(after.userId ? 'Discord user ID changed' : 'Discord user ID cleared');
   if (after.guildIds.join() !== before.guildIds.join()) changes.push(`Servers changed (${servers(after.guildIds.length)} chosen)`);
   if (after.intervalMinutes !== before.intervalMinutes) {
@@ -283,11 +305,27 @@ export async function saveWattnickSettings(store, input) {
   const before = await readSettings(store);
   const settings = cleanSettings(input || {}, before);
   await store.setJSON(SETTINGS_KEY, settings);
-  await appendLog(store, describeChanges(before, settings), Date.now());
-  // A changed name or server list should be applied on the next run, not skipped.
+  const now = Date.now();
+  await appendLog(store, describeChanges(before, settings), now);
+  const status = (await store.get(STATUS_KEY, { type: 'json' })) || {};
   if (settings.enabled) {
-    const status = (await store.get(STATUS_KEY, { type: 'json' })) || {};
+    // A changed name or server list should be applied on the next run, not skipped.
     await store.setJSON(STATUS_KEY, { ...status, lastNickAt: null });
+  } else if (settings.restoreOnPause && settings.userId && settings.guildIds.length) {
+    // Paused (or saved while paused): set the paused name now, not at the next run.
+    const next = { ...status, restored: false };
+    const log = [];
+    try {
+      await putNameBack(settings, status, next, log);
+      next.restored = true;
+      if (status.lastError) log.push('Working again');
+      next.lastError = null;
+    } catch (error) {
+      next.lastError = { at: now, message: error.message };
+      log.push(`Error: ${error.message}`);
+    }
+    await store.setJSON(STATUS_KEY, next);
+    await appendLog(store, log, now);
   }
   return settings;
 }

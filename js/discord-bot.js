@@ -111,7 +111,9 @@
           status?.lastNickAt && `set ${timeFormat.format(status.lastNickAt)}`,
           status?.lastRunAt && `last run ${timeFormat.format(status.lastRunAt)}`
         ].filter(Boolean).join(' · ')
-        : settings.restoreOnPause ? 'Your name is put back while paused' : 'The last reading stays in your nickname while paused';
+        : !settings.restoreOnPause ? 'The last reading stays in your nickname while paused'
+          : settings.resetName || settings.nickBase ? `Your nickname is "${settings.resetName || settings.nickBase}" while paused`
+            : 'Your nickname is removed while paused';
       toggle.textContent = settings.enabled ? 'Pause' : 'Resume';
       error.textContent = status?.lastError ? `${timeFormat.format(status.lastError.at)}: ${status.lastError.message}` : '';
     }
@@ -122,6 +124,10 @@
     nickBase.maxLength = limits.maxNickBase;
     nickBase.value = settings.nickBase;
     nickBase.placeholder = 'Kiwamari';
+    const resetName = html('input');
+    resetName.maxLength = 32;
+    resetName.value = settings.resetName || '';
+    resetName.placeholder = settings.nickBase || 'Alex';
     const userId = html('input');
     userId.inputMode = 'numeric';
     userId.value = settings.userId;
@@ -181,6 +187,7 @@
     form.append(
       field('Name before the reading', nickBase),
       preview,
+      field('Name when paused', resetName, 'Set as soon as you press Pause. Leave empty to use the name before the reading.'),
       field('Your Discord user ID', userId, 'Discord → User Settings → Advanced → Developer Mode, then right-click your name → Copy User ID.'),
       servers,
       field('Update', interval),
@@ -194,7 +201,9 @@
       try {
         const result = await request('POST', { action: 'wattnick-settings', settings: changes });
         settings = result.settings;
-        saveNote.textContent = settings.enabled ? 'Saved. Applied within a minute.' : 'Saved.';
+        saveNote.textContent = settings.enabled
+          ? 'Saved. Applied within a minute.'
+          : settings.restoreOnPause && (settings.resetName || settings.nickBase) ? `Saved. Nickname set to "${settings.resetName || settings.nickBase}".` : 'Saved.';
         showStatus();
         poll();
       } catch (failure) {
@@ -211,6 +220,7 @@
         userId: userId.value,
         guildIds: serverBoxes.filter(box => box.checked).map(box => box.value),
         intervalMinutes: Number(interval.value),
+        resetName: resetName.value,
         restoreOnPause: restore.checked
       }, save);
     });

@@ -309,7 +309,7 @@
         return json(200, {
           configured: true,
           inviteUrl: 'https://discord.com/oauth2/authorize?client_id=000000000000000000&scope=bot&permissions=134217728',
-          settings: { enabled: true, nickBase: 'Kiwamari', userId: '123456789012345678', guildIds: ['111111111111111111'], intervalMinutes: 1, restoreOnPause: true },
+          settings: { enabled: true, nickBase: 'Kiwamari', resetName: 'Alex', userId: '123456789012345678', guildIds: ['111111111111111111'], intervalMinutes: 1, restoreOnPause: true },
           status: { lastRunAt: now - 20000, lastNickAt: now - 20000, watts: 426, nicks: { '111111111111111111': 'Kiwamari 426W ⚡' }, lastError: null },
           guilds: [{ id: '111111111111111111', name: 'Besaid Island' }, { id: '222222222222222222', name: 'Gaming Friends' }],
           log: [
@@ -409,7 +409,7 @@
 
     // Fake Discord bot settings save, for UI design only: echoes what was sent.
     if (method === 'POST' && body?.action === 'wattnick-settings') {
-      return json(200, { settings: { enabled: true, nickBase: 'Kiwamari', userId: '123456789012345678', guildIds: ['111111111111111111'], intervalMinutes: 1, restoreOnPause: true, ...body.settings } });
+      return json(200, { settings: { enabled: true, nickBase: 'Kiwamari', resetName: 'Alex', userId: '123456789012345678', guildIds: ['111111111111111111'], intervalMinutes: 1, restoreOnPause: true, ...body.settings } });
     }
     if (method === 'POST' && body?.action === 'clear-errors') {
       if (!session.isAdmin) return json(403, { error: 'Only the admin can clear errors' });
