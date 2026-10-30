@@ -16,6 +16,8 @@
 // No costs are worked out or shown: two-rate tariffs (E-2R-…) have a day and a night
 // price, but the API doesn't say which hours are night, so any cost would be a guess.
 
+import { recordCall } from './debug-log.mjs';
+
 const API = 'https://api.octopus.energy/v1';
 const DAY_MS = 86400000;
 const REQUEST_TIMEOUT_MS = 20000;
@@ -31,6 +33,7 @@ export function octopusConfigured() {
 async function octopusGet(pathOrUrl, params = {}) {
   const url = new URL(pathOrUrl.startsWith('https://') ? pathOrUrl : `${API}${pathOrUrl}`);
   for (const [name, value] of Object.entries(params)) url.searchParams.set(name, value);
+  recordCall(`Octopus GET ${url.pathname}`);
   const response = await fetch(url, {
     // The API key is the username, with no password.
     headers: { Authorization: `Basic ${Buffer.from(`${process.env.OCTOPUS_API_KEY}:`).toString('base64')}` },
@@ -124,6 +127,9 @@ const RATE_LIMIT_PATTERN =/too many requests|rate.?limit|throttl/i;
 const AUTH_PATTERN = /jwt|token|signature|expired|authenticat|unauthori[sz]ed/i;
 
 async function graphqlPost(query, variables, token) {
+  // Named by its operation, like "query live" or "mutation krakenToken".
+  const [operation = 'query'] = query.match(/^\s*(?:query|mutation)\s+\w+/) || [];
+  recordCall(`Octopus GraphQL ${operation.trim()}`);
   const response = await fetch(GRAPHQL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `JWT ${token}` } : {}) },
@@ -303,12 +309,24 @@ export async function readEnergySummary(now = Date.now()) {
 // Called once a minute by the scheduled job, never by the page. One request to Octopus:
 // only the readings since the last answer (plus LIVE_OVERLAP_MS), with today's total
 // added to the same request when it's due. store is the site's Netlify Blobs store.
+// debug (on the answer, or on the error thrown) is true while the admin panel's Debug is
+// on, so the scheduled job saves its calls for the debug log without another read.
 export async function readLiveEnergy(store, now = Date.now()) {
   const existing = await store.getWithMetadata(LIVE_KEY, { type: 'json' });
   const saved = existing?.data || {};
+  const debug = saved.debugUntil > now;
+  try {
+    return { ...(await readLiveReadings(store, existing, saved, now)), debug };
+  } catch (error) {
+    error.debug = debug;
+    throw error;
+  }
+}
+
+async function readLiveReadings(store, existing, saved, now) {
   if (saved.paused) throw new LivePaused();
   if (saved.blockedUntil > now) throw new OctopusRateLimit(saved.blockedUntil);
-  if (saved.at && now - saved.at < LIVE_FRESH_MS) return { ...liveAnswer(saved), historyDue: false };
+  if (saved.at && now - saved.at < LIVE_FRESH_MS) return { ...liveAnswer(saved), historyDue: false, archiveDue: false };
 
   const context = { store, auth: (await store.get(AUTH_KEY, { type: 'json' })) || {} };
   const windowStart = now - LIVE_WINDOW_MS;
@@ -354,10 +372,17 @@ export async function readLiveEnergy(store, now = Date.now()) {
 
   // Only over the version read, so a Pause pressed while Octopus was being asked isn't
   // written over. The readings missed are asked for again next time.
-  const next = { at: now, points, today, historyDueAt: saved.historyDueAt };
+  const next = {
+    at: now, points, today, historyDueAt: saved.historyDueAt, archiveDueAt: saved.archiveDueAt, debugUntil: saved.debugUntil
+  };
   await store.setJSON(LIVE_KEY, next, existing ? { onlyIfMatch: existing.etag } : { onlyIfNew: true });
-  // historyDue tells the scheduled job to call updateEnergyHistory after the nickname.
-  return { ...liveAnswer(next), historyDue: !(saved.historyDueAt > now) };
+  // historyDue and archiveDue tell the scheduled job to call updateEnergyHistory and
+  // archiveTenSeconds after the nickname.
+  return {
+    ...liveAnswer(next),
+    historyDue: !(saved.historyDueAt > now),
+    archiveDue: !(saved.archiveDueAt > now)
+  };
 }
 
 // Changes some of LIVE_KEY's fields, without writing over a change made at the same
@@ -382,6 +407,16 @@ export async function setLivePaused(store, paused) {
   return { paused };
 }
 
+// The admin panel's Debug: while on, the scheduled job saves its calls for the debug
+// log. It turns itself off after DEBUG_FOR_MS, so a page closed with it on doesn't
+// leave the job writing the log for good; the page renews it while it's open.
+const DEBUG_FOR_MS = 60 * 60 * 1000;
+export async function setDebug(store, on, now = Date.now()) {
+  const debugUntil = on ? now + DEBUG_FOR_MS : null;
+  await updateLive(store, { debugUntil });
+  return { debugUntil };
+}
+
 // For the profile's live view: the scheduled job's last answer, without asking Octopus.
 // null if the job hasn't saved one yet. pausedUntil is set while Octopus is refusing
 // requests ("too many requests"), when the readings stop updating.
@@ -395,7 +430,9 @@ export async function readSavedLive(store, now = Date.now()) {
   return {
     ...liveAnswer({ ...saved, today }),
     paused: Boolean(saved.paused),
-    pausedUntil: saved.blockedUntil > now ? saved.blockedUntil : null
+    pausedUntil: saved.blockedUntil > now ? saved.blockedUntil : null,
+    // Until when the scheduled job saves its calls for the admin panel's debug log.
+    debugUntil: saved.debugUntil > now ? saved.debugUntil : null
   };
 }
 
@@ -503,7 +540,129 @@ export async function readSavedHistory(store, date, now = Date.now()) {
     complete: Boolean(saved.complete),
     updatedAt: saved.at,
     nextAt: saved.nextAt ?? null,
-    error: saved.error || null
+    error: saved.error || null,
+    archive: await readArchiveState(store)
+  };
+}
+
+// ---------- 10-second archive ----------
+//
+// Every 10-second Home Mini reading of each finished UK day, kept for good in its own
+// Netlify Blobs store (passed in as archive), one entry per day, written once:
+//   ten-seconds/YYYY-MM-DD  { date, from (its midnight), step: 10 (seconds), watts: [one
+//                           per 10 seconds from midnight, null where there's no reading] }
+// That's about 35 KB a day. Nobody knows how long Octopus keeps 10-second readings, so
+// the first run also works back a day at a time until Octopus has none for
+// ARCHIVE_EMPTY_STOP days running (or ARCHIVE_MAX_DAYS). After that it's checked once a
+// week, fetching the days since. Each day is one request, ARCHIVE_STEP_MS apart, so it
+// stays well inside Octopus's limit alongside the live readings and the history. When
+// it's next due is kept in LIVE_KEY (archiveDueAt), like the history's. Its progress is
+// in the stats store under ARCHIVE_STATE_KEY:
+//   { newestChecked, oldestChecked (days asked about), savedDays, firstSaved, lastSaved
+//     (days with readings), emptyRun, backfillDone, lastRunAt, nextAt, error }
+const ARCHIVE_STATE_KEY = 'energy-archive-state';
+const ARCHIVE_EVERY_MS = 7 * DAY_MS;
+const ARCHIVE_STEP_MS = 5 * 60 * 1000;
+const ARCHIVE_RETRY_MS = 60 * 60 * 1000;
+// A day is archived once it's been over this long, so its last readings have arrived.
+const ARCHIVE_SETTLE_MS = 60 * 60 * 1000;
+const ARCHIVE_MAX_DAYS = 730;
+const ARCHIVE_EMPTY_STOP = 2;
+const TEN_SECONDS_MS = 10000;
+
+// The UK day ('YYYY-MM-DD') by days after (or before) another, and a day's midnights.
+function shiftDay(date, by) {
+  const [year, month, day] = date.split('-').map(Number);
+  return londonDay.format(new Date(londonMidnight(year, month, day + by)));
+}
+
+function dayBounds(date) {
+  const [year, month, day] = date.split('-').map(Number);
+  return { from: londonMidnight(year, month, day), to: londonMidnight(year, month, day + 1) };
+}
+
+// Called by the scheduled job when readLiveEnergy says archiveDue. Archives at most one
+// day per call: the oldest-first search back, then the days since the newest checked.
+export async function archiveTenSeconds(store, archive, now = Date.now()) {
+  const state = (await store.get(ARCHIVE_STATE_KEY, { type: 'json' })) || {};
+  const newestComplete = londonDay.format(new Date(now - ARCHIVE_SETTLE_MS - DAY_MS));
+  const limit = londonDay.format(new Date(now - ARCHIVE_MAX_DAYS * DAY_MS));
+  // Older days first: they're the ones Octopus may drop soonest.
+  const target = !state.newestChecked ? newestComplete
+    : !state.backfillDone ? shiftDay(state.oldestChecked, -1)
+      : state.newestChecked < newestComplete ? shiftDay(state.newestChecked, 1)
+        : null;
+
+  const save = async (fields, nextAt) => {
+    await store.setJSON(ARCHIVE_STATE_KEY, { ...state, ...fields, lastRunAt: now, nextAt });
+    await updateLive(store, { archiveDueAt: nextAt });
+  };
+  if (!target) {
+    await save({ error: null }, now + ARCHIVE_EVERY_MS);
+    return;
+  }
+
+  const { from, to } = dayBounds(target);
+  const context = { store, auth: (await store.get(AUTH_KEY, { type: 'json' })) || {} };
+  let data;
+  try {
+    const deviceId = await homeMiniId(context);
+    data = await graphql(context, `query archive($deviceId: String!, $from: DateTime!, $to: DateTime!) {
+      day: smartMeterTelemetry(deviceId: $deviceId, grouping: TEN_SECONDS, start: $from, end: $to) { readAt demand }
+    }`, { deviceId, from: iso(from), to: iso(to) });
+  } catch (error) {
+    if (error.rateLimited) {
+      const until = now + RATE_LIMIT_PAUSE_MS;
+      await updateLive(store, { blockedUntil: until, archiveDueAt: until });
+      return;
+    }
+    // Tried again in an hour; the error shows on the "All" tab meanwhile.
+    await save({ error: `${target}: ${error.message}` }, now + ARCHIVE_RETRY_MS);
+    return;
+  }
+
+  // One slot per 10 seconds from midnight (8,640 a day; 8,280 or 9,000 when the clocks change).
+  const watts = Array.from({ length: Math.round((to - from) / TEN_SECONDS_MS) }, () => null);
+  let count = 0;
+  for (const reading of data?.day || []) {
+    const time = Date.parse(reading.readAt);
+    const value = reading.demand === null || reading.demand === '' ? NaN : Number(reading.demand);
+    const slot = Math.round((time - from) / TEN_SECONDS_MS);
+    if (!Number.isFinite(value) || !(slot >= 0 && slot < watts.length)) continue;
+    if (watts[slot] === null) count++;
+    watts[slot] = Math.round(value);
+  }
+  if (count) await archive.setJSON(`ten-seconds/${target}`, { date: target, from, step: 10, watts });
+
+  const fields = { error: null };
+  if (!state.newestChecked || target > state.newestChecked) fields.newestChecked = target;
+  if (!state.oldestChecked || target < state.oldestChecked) fields.oldestChecked = target;
+  if (count) {
+    fields.savedDays = (state.savedDays || 0) + 1;
+    if (!state.firstSaved || target < state.firstSaved) fields.firstSaved = target;
+    if (!state.lastSaved || target > state.lastSaved) fields.lastSaved = target;
+  }
+  // Searching back: stop after ARCHIVE_EMPTY_STOP empty days running, or at the limit.
+  if (state.newestChecked && !state.backfillDone) {
+    fields.emptyRun = count ? 0 : (state.emptyRun || 0) + 1;
+    fields.backfillDone = fields.emptyRun >= ARCHIVE_EMPTY_STOP || target <= limit;
+  }
+  const next = { ...state, ...fields };
+  const more = !next.backfillDone || next.newestChecked < newestComplete;
+  await save(fields, now + (more ? ARCHIVE_STEP_MS : ARCHIVE_EVERY_MS));
+}
+
+// For the "All" tab's note: how much is archived. null before the first run.
+async function readArchiveState(store) {
+  const state = await store.get(ARCHIVE_STATE_KEY, { type: 'json' });
+  if (!state?.lastRunAt) return null;
+  return {
+    savedDays: state.savedDays || 0,
+    firstSaved: state.firstSaved || null,
+    lastSaved: state.lastSaved || null,
+    searching: !state.backfillDone,
+    nextAt: state.nextAt ?? null,
+    error: state.error || null
   };
 }
 

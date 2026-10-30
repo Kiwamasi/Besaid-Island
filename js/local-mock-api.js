@@ -347,7 +347,10 @@
           const cooking = hour === 18 && time % 3600000 < 1200000 ? 1800 : 0;
           points.push([time, Math.round(220 + evening + cooking + 60 * Math.sin(time / 1700000))]);
         }
-        return json(200, { days, date, from, to, points, complete: false, updatedAt: now - 120000, nextAt: now + 180000, error: null });
+        return json(200, {
+          days, date, from, to, points, complete: false, updatedAt: now - 120000, nextAt: now + 180000, error: null,
+          archive: { savedDays: 7, firstSaved: days[0], lastSaved: days.at(-2), searching: false, nextAt: now + 86400000, error: null }
+        });
       }
       if (url.searchParams.has('energy-live')) {
         if (!user?.isAdmin) return json(403, { error: 'Only the admin can see energy use' });
@@ -425,6 +428,11 @@
 
     const session = sessionUser(options.headers);
     if (!session) return json(401, { error: 'Please sign in again' });
+
+    // Fake Debug switch, for UI design only.
+    if (method === 'POST' && body?.action === 'debug') {
+      return json(200, { debugUntil: body.on ? Date.now() + 3600000 : null });
+    }
 
     // Fake live readings Pause / Resume, for UI design only: remembered so the button shows it.
     if (method === 'POST' && body?.action === 'energy-settings') {
@@ -554,7 +562,24 @@
     if (`${url.origin}${url.pathname}`.replace(/\/$/, '') !== apiUrl) return realFetch(input, options);
     // Small delay so the "Checking account…" / "Saving…" states still show.
     await new Promise(resolve => setTimeout(resolve, 150));
-    return handle(url, options);
+    const response = await handle(url, options);
+    if (new Headers(options.headers).get('x-debug') !== '1') return response;
+    // Fake debug details in the real API's shape, for the debug log's design only.
+    const body = await response.clone().json().catch(() => null);
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return response;
+    const now = Date.now();
+    body._debug = [{ at: now - 40, text: 'Local mock: answered in this browser, nothing sent to Netlify' }];
+    if (url.searchParams.has('energy-live')) {
+      const run = Math.floor(now / 60000) * 60000 + 1000;
+      body.jobLog = [
+        { at: run, text: 'Blobs getWithMetadata site-stats/energy-live' },
+        { at: run + 20, text: 'Blobs get site-stats/octopus-auth' },
+        { at: run + 40, text: 'Octopus GraphQL query live' },
+        { at: run + 600, text: 'Blobs setJSON site-stats/energy-live' },
+        { at: run + 650, text: 'Discord PATCH /guilds/111111111111111111/members/123456789012345678' }
+      ];
+    }
+    return new Response(JSON.stringify(body), { status: response.status, headers: response.headers });
   };
 
   document.addEventListener('DOMContentLoaded', () => {

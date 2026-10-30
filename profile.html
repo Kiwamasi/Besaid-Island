@@ -51,10 +51,14 @@
       <!-- Only on the admin's own profile; the API refuses everyone else too. -->
       <section class="profile-admin" id="adminPanel" aria-labelledby="adminPanelTitle" hidden>
         <div class="profile-admin-head">
-          <h2 class="profile-admin-title" id="adminPanelTitle">Admin panel</h2>
+          <div class="profile-admin-heading">
+            <h2 class="profile-admin-title" id="adminPanelTitle">Admin panel</h2>
+            <label class="bot-check debug-toggle"><input type="checkbox" id="debugToggle"><span>Debug</span></label>
+          </div>
           <button class="profile-button" type="button" id="energyRefresh">Refresh</button>
         </div>
-        <!-- Electricity on the left, the Discord bot on the right (stacked on narrow screens). -->
+        <!-- Electricity on the left, the Discord bot on the right, and the debug log beside
+             it while Debug is ticked (stacked on narrow screens). -->
         <div class="profile-admin-columns">
           <div class="profile-admin-column">
             <h3 class="profile-admin-subtitle">Electricity (Octopus)</h3>
@@ -68,12 +72,14 @@
             <h3 class="profile-admin-subtitle">Discord nickname bot</h3>
             <div class="discord-bot" id="discordBot"></div>
           </div>
+          <div class="profile-admin-column" id="debugColumn" hidden></div>
         </div>
       </section>
 
   <script src="js/energy-chart.js"></script>
   <script src="js/energy-live.js"></script>
   <script src="js/discord-bot.js"></script>
+  <script src="js/debug-log.js"></script>
   <script src="js/profile.js"></script>
 </body>
 </html>

@@ -497,6 +497,15 @@
           notes.push(`Five-minute averages, ${dayName(current.days[0])} to ${dayName(current.days.at(-1))} (${current.days.length} ${current.days.length === 1 ? 'day' : 'days'})${history.complete ? ': as far back as the Home Mini goes.' : '. Older days are still being fetched from Octopus, a few at a time.'}`);
         }
         if (history.error) notes.push(`Octopus: ${history.error}`);
+        // The 10-second archive kept on Netlify (netlify/lib/octopus.mjs, archiveTenSeconds).
+        const archive = history.archive;
+        if (archive) {
+          const saved = archive.savedDays
+            ? `${archive.savedDays} ${archive.savedDays === 1 ? 'day' : 'days'} saved, ${dayName(archive.firstSaved)} to ${dayName(archive.lastSaved)}`
+            : 'nothing saved yet';
+          notes.push(`10-second archive: ${saved}${archive.searching ? ', still looking for older days' : ', checked weekly'}.`);
+          if (archive.error) notes.push(`Archive: ${archive.error}`);
+        }
         if (current.historyError) notes.push(current.historyError);
         showNote(notes.join(' '));
       } else {

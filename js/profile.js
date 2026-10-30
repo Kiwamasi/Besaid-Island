@@ -158,9 +158,16 @@ function showAdminPanel() {
   if (!show) {
     energyShownFor = null;
     window.energyLive.stop();
+    window.debugLog.stop();
     return;
   }
   if (energyShownFor !== account.user.username) {
+    // First, so the calls below show in the debug log when it's on.
+    window.debugLog.start({
+      toggle: document.getElementById('debugToggle'),
+      column: document.getElementById('debugColumn'),
+      request: account.request
+    });
     loadEnergy();
     window.discordBot.show(discordBotBox, account.request);
     liveToday = null;

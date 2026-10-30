@@ -10,6 +10,7 @@
 //   siteAccount.pageOwner()   whose backlog/profile the page shows (see below)
 //   siteAccount.showOwnerInAddress(name), siteAccount.isSameAccount(a, b)
 //   siteAccount.saveColor(color), siteAccount.applyColor(color)   the person's site colour
+//   siteAccount.recentCalls()   this page's latest API calls, for the debug log
 // and listen for the 'site-account-change' event on document.
 (() => {
   const SESSION_KEY = 'besaid-backlog-session';
@@ -35,23 +36,57 @@
 
   // ---------- API ----------
 
+  // Every call this page makes to the API, newest last (at most MAX_CALLS), for the
+  // admin panel's debug log (js/debug-log.js), which also hears each one as a
+  // 'site-api-call' event: { at, method, query, status (0 if it never answered), ms,
+  // calls (what the server did for it, when Debug is on), jobLog }.
+  const MAX_CALLS = 50;
+  const recentCalls = [];
+  function noteCall(call) {
+    recentCalls.push(call);
+    if (recentCalls.length > MAX_CALLS) recentCalls.shift();
+    document.dispatchEvent(new CustomEvent('site-api-call', { detail: call }));
+  }
+
   async function request(method, body, query = '') {
     if (!apiUrl) throw new Error('Shared backlog service is not configured');
     const headers = {};
     if (body) headers['Content-Type'] = 'application/json';
     if (token) headers.Authorization = `Bearer ${token}`;
+    // The admin's Debug box: the server sends back the calls it made (admin only).
+    if (window.siteDebug?.on) headers['X-Debug'] = '1';
 
-    const response = await fetch(`${apiUrl}${query}`, {
-      method,
-      headers,
-      body: body ? JSON.stringify(body) : undefined
-    });
+    const started = performance.now();
+    // POSTs are named by their action ("POST debug"), the rest by their query.
+    const call = {
+      at: Date.now(), method, query: query || (body?.action ? body.action : body?.game ? 'save game' : '/'),
+      status: 0, ms: 0, calls: null, jobLog: null
+    };
+    let response;
+    try {
+      response = await fetch(`${apiUrl}${query}`, {
+        method,
+        headers,
+        body: body ? JSON.stringify(body) : undefined
+      });
+    } catch (error) {
+      noteCall({ ...call, ms: Math.round(performance.now() - started) });
+      throw error;
+    }
     let result;
     try {
       result = await response.json();
     } catch {
+      noteCall({ ...call, status: response.status, ms: Math.round(performance.now() - started) });
       throw new Error(`The server returned an unreadable response (HTTP ${response.status})`);
     }
+    noteCall({
+      ...call,
+      status: response.status,
+      ms: Math.round(performance.now() - started),
+      calls: Array.isArray(result?._debug) ? result._debug : null,
+      jobLog: Array.isArray(result?.jobLog) ? result.jobLog : null
+    });
     if (!response.ok) {
       const error = new Error(result.error || 'Request failed');
       error.status = response.status;
@@ -367,7 +402,8 @@
     showOwnerInAddress,
     isSameAccount,
     applyColor,
-    saveColor
+    saveColor,
+    recentCalls: () => recentCalls.slice()
   };
 
   checkSession();

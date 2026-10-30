@@ -28,6 +28,8 @@
 //                 nicknames set and errors (each error once, not every minute), for the
 //                 panel's log console
 
+import { recordCall } from './debug-log.mjs';
+
 const DISCORD_API = 'https://discord.com/api/v10';
 const REQUEST_TIMEOUT_MS = 10000;
 const SETTINGS_KEY = 'wattnick-settings';
@@ -64,6 +66,7 @@ function clientId() {
 }
 
 async function discord(method, path, body) {
+  recordCall(`Discord ${method} ${path}`);
   const response = await fetch(`${DISCORD_API}${path}`, {
     method,
     headers: {
@@ -279,6 +282,9 @@ export async function runWattnick(store, live, readError, now = Date.now()) {
   // Each error once when it starts (or changes), and once when it clears.
   if (next.lastError && next.lastError.message !== status.lastError?.message) log.push(`Error: ${next.lastError.message}`);
   if (!next.lastError && status.lastError) log.push('Working again');
+  // Paused, the name already put back, and nothing new to say: nothing worth saving, so
+  // the paused minutes don't write the store (the panel stops asking while paused too).
+  if (!settings.enabled && status.restored && !next.lastError && !status.lastError && !log.length) return;
   await store.setJSON(STATUS_KEY, next);
   await appendLog(store, log, now);
 }

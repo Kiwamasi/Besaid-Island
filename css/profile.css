@@ -152,6 +152,16 @@
   gap: 1rem;
 }
 
+.profile-admin-heading {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.debug-toggle {
+  font-size: 0.8rem;
+}
+
 /* Electricity on the left, the Discord bot on the right; one column below 1000px. */
 .profile-admin-columns {
   display: grid;
@@ -160,8 +170,64 @@
   align-items: start;
 }
 
+/* With Debug ticked: the panel widens for the debug log, a third column beside the bot.
+   Below 1400px it goes under the bot instead, and below 1000px everything stacks. */
+.profile-admin.has-debug {
+  max-width: none;
+}
+
+.profile-shell:has(.profile-admin.has-debug) {
+  width: min(100%, 1800px);
+}
+
+.has-debug .profile-admin-columns {
+  grid-template-columns: minmax(0, 40rem) minmax(0, 1fr) minmax(0, 1fr);
+}
+
+@media (max-width: 1400px) {
+  .has-debug .profile-admin-columns { grid-template-columns: minmax(0, 40rem) minmax(0, 1fr); }
+  .has-debug #debugColumn { grid-column: 2; }
+}
+
 @media (max-width: 1000px) {
-  .profile-admin-columns { grid-template-columns: minmax(0, 1fr); gap: 0.5rem; }
+  .profile-admin-columns,
+  .has-debug .profile-admin-columns { grid-template-columns: minmax(0, 1fr); gap: 0.5rem; }
+  .has-debug #debugColumn { grid-column: auto; }
+}
+
+#debugColumn[hidden] {
+  display: none;
+}
+
+.debug-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.debug-head .profile-admin-subtitle {
+  margin-bottom: 0.4rem;
+}
+
+.debug-note {
+  margin: 0 0 0.3rem;
+}
+
+/* Taller than the bot's log (whose rule comes later), as it fills quickly. */
+.bot-log.debug-log {
+  max-height: 40rem;
+  margin-top: 0;
+}
+
+.debug-source {
+  flex: none;
+  width: 3.6rem;
+  color: var(--site-muted);
+}
+
+.debug-source.is-page {
+  color: var(--site-accent);
 }
 
 .profile-admin-title {

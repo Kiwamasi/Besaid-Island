@@ -1,7 +1,8 @@
-import { getStore } from '@netlify/blobs';
+import { getStore as openStore } from '@netlify/blobs';
 import { createHmac, randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
-import { octopusConfigured, readEnergySummary, readSavedHistory, readSavedLive, setLivePaused } from '../lib/octopus.mjs';
+import { DEBUG_LOG_KEY, recordCall, recordedStore, startRecording, takeRecording } from '../lib/debug-log.mjs';
+import { octopusConfigured, readEnergySummary, readSavedHistory, readSavedLive, setDebug, setLivePaused } from '../lib/octopus.mjs';
 import { discordConfigured, readWattnickPanel, readWattnickStatus, saveWattnickSettings } from '../lib/wattnick.mjs';
 
 const STORE_NAME = 'public-game-backlog';
@@ -73,7 +74,7 @@ const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://kiwamasi.github.io
 const scrypt = promisify(scryptCallback);
 const HEADERS = {
   'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Debug',
   'Content-Type': 'application/json; charset=utf-8',
   'Cache-Control': 'no-store'
 };
@@ -87,8 +88,24 @@ function corsHeaders(request) {
   };
 }
 
+// Every store opened here records its reads and writes for the admin's debug log
+// (netlify/lib/debug-log.mjs); it's only sent back when debugRequested.
+function getStore(options) {
+  return recordedStore(openStore(options), options.name);
+}
+
+// Set once the request's session is known: the admin asking with "X-Debug: 1" (the
+// profile's Debug box) gets the calls this request made, as _debug on the answer.
+let debugRequested = false;
+function wantsDebug(request, session) {
+  debugRequested = Boolean(session?.isAdmin) && request.headers.get('x-debug') === '1';
+}
+
 function respond(request, statusCode, body) {
-  return new Response(JSON.stringify(body), { status: statusCode, headers: corsHeaders(request) });
+  const answer = debugRequested && body && typeof body === 'object' && !Array.isArray(body)
+    ? { ...body, _debug: takeRecording() }
+    : body;
+  return new Response(JSON.stringify(answer), { status: statusCode, headers: corsHeaders(request) });
 }
 
 function secretsConfigured() {
@@ -414,6 +431,7 @@ function seriesTitle(title) {
 }
 
 function askGemini(model, title, lowThinking, timeout) {
+  recordCall(`Gemini ${model}`);
   return fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
     {
@@ -615,6 +633,8 @@ export default async (request, context) => {
     return new Response(null, { status: 204, headers: corsHeaders(request) });
   }
 
+  startRecording();
+  debugRequested = false;
   let pendingRegistration = null;
   try {
     const body = ['POST', 'DELETE'].includes(request.method) ? await request.json() : null;
@@ -686,6 +706,7 @@ export default async (request, context) => {
     if (request.method === 'GET') {
       const params = new URL(request.url).searchParams;
       const session = await activeSession(request);
+      wantsDebug(request, session);
       const user = session ? await publicUser(session.username) : null;
       if (params.has('session')) {
         return respond(request, 200, { user });
@@ -757,6 +778,8 @@ export default async (request, context) => {
             error: 'No Home Mini readings yet: the scheduled Netlify job collects them once a minute'
           });
         }
+        // With Debug on, the scheduled job's saved calls come too, so the page needn't ask.
+        if (debugRequested) live.jobLog = (await statsStore().get(DEBUG_LOG_KEY, { type: 'json' })) || [];
         return respond(request, 200, live);
       }
 
@@ -812,6 +835,7 @@ export default async (request, context) => {
 
     if (!secretsConfigured()) return respond(request, 503, { error: 'Login is not configured yet' });
     const session = await activeSession(request);
+    wantsDebug(request, session);
     if (!session) return respond(request, 401, { error: 'Please sign in again' });
 
     // Sent by the Users page. Deletes the account with its backlog and settings.
@@ -852,6 +876,14 @@ export default async (request, context) => {
       if (!session.isAdmin) return respond(request, 403, { error: 'Only the admin can pause energy readings' });
       if (typeof body.paused !== 'boolean') return respond(request, 400, { error: 'Invalid pause setting' });
       return respond(request, 200, await setLivePaused(statsStore(), body.paused));
+    }
+
+    // Sent by the admin panel's Debug box: { on: true | false }. While on (for up to an
+    // hour, renewed by the page), the scheduled job saves its calls for the debug log.
+    if (request.method === 'POST' && body?.action === 'debug') {
+      if (!session.isAdmin) return respond(request, 403, { error: 'Only the admin can turn on debugging' });
+      if (typeof body.on !== 'boolean') return respond(request, 400, { error: 'Invalid debug setting' });
+      return respond(request, 200, await setDebug(statsStore(), body.on));
     }
 
     // Sent by the admin panel's Discord bot section: any of enabled, nickBase, userId,

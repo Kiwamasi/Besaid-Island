@@ -258,7 +258,7 @@
     const nextRun = () => Math.ceil(Date.now() / MINUTE_MS) * MINUTE_MS;
 
     function showCountdown() {
-      if (document.hidden) {
+      if (document.hidden || !settings.enabled) {
         countdown.textContent = 'Paused';
         return;
       }
@@ -289,6 +289,14 @@
       }
       polling = false;
       showCountdown();
+      // Paused: nothing changes until Resume (which asks again straight away), so no
+      // more asking. Coming back to the tab asks once, in case it was resumed elsewhere.
+      if (!settings.enabled) {
+        rechecks = 0;
+        dueAt = null;
+        clearTimeout(timer);
+        return;
+      }
       if (late && rechecks < MAX_RECHECKS) {
         rechecks++;
         schedule(Date.now() + RECHECK_MS);
@@ -329,7 +337,7 @@
       if (!container.isConnected) stopPolling();
       else showCountdown();
     }, 1000);
-    schedule(nextRun() + RUN_SETTLE_MS);
+    if (settings.enabled) schedule(nextRun() + RUN_SETTLE_MS);
 
     showStatus();
     showLog();
