@@ -39,12 +39,14 @@
     }
   }
 
-  // Who each line went to, shown in brackets after it.
+  // Who each line went to, shown in brackets after it. Page calls go to Netlify, or count
+  // as Octopus's (Discord's, Google's) when Netlify only passed them on (see addCall).
   function serviceOf(source, text) {
-    if (source === 'Page' || text.startsWith('Blobs')) return 'Netlify';
-    if (text.startsWith('Octopus')) return 'Octopus';
-    if (text.startsWith('Discord')) return 'Discord';
-    if (text.startsWith('Gemini')) return 'Google';
+    const call = text.replace(/^↳ /, '');
+    if (source === 'Page' || call.startsWith('Blobs') || call.startsWith('No details')) return 'Netlify';
+    if (call.startsWith('Octopus')) return 'Octopus';
+    if (call.startsWith('Discord')) return 'Discord';
+    if (call.startsWith('Gemini')) return 'Google';
     return 'Browser';
   }
 
@@ -155,22 +157,38 @@
 
     // order places a line: what the server did for a page call goes straight under that
     // call (just before it in time, as the newest is shown first), in the order done.
-    function add(at, source, text, { error = false, order = at } = {}) {
+    function add(at, source, text, { error = false, order = at, service = serviceOf(source, text) } = {}) {
       const key = `${source}|${at}|${text}`;
       if (seen.has(key)) return;
       seen.add(key);
-      lines.push({ at, source, text, error, order });
+      lines.push({ at, source, text, error, order, service });
     }
 
+    // Calls made in the same millisecond each keep their own lines together.
+    let sequence = 0;
     function addCall(call) {
       const answer = call.status ? `${call.status}` : 'no answer';
-      add(call.at, 'Page', `${call.method} ${call.query} → ${answer} · ${call.ms} ms`, {
-        error: call.status === 0 || call.status >= 400
-      });
       const inner = call.calls || [];
-      inner.forEach((entry, index) => add(entry.at, 'Netlify', `↳ ${entry.text}`, {
-        order: call.at - (inner.length - index) / 1000
+      // A call Netlify only passed on to Octopus (or Discord, or Google) counts as theirs.
+      const outside = [...new Set(inner.map(entry => serviceOf('Netlify', entry.text)).filter(service => service !== 'Netlify'))];
+      // Fractions of a millisecond: big enough to survive rounding at today's timestamps
+      // (about 1.7 trillion, where a double resolves about 0.0002), small enough to keep
+      // each call within its millisecond with room for 40 server lines under it.
+      const order = call.at + (++sequence % 50) * 0.02;
+      add(call.at, 'Page', `${call.method} ${call.query} → ${answer} · ${call.ms} ms`, {
+        error: call.status === 0 || call.status >= 400,
+        order,
+        service: outside.length ? outside.join(' + ') : 'Netlify'
+      });
+      inner.slice(-40).forEach((entry, index, shown) => add(entry.at, 'Netlify', `↳ ${entry.text}`, {
+        order: order - (shown.length - index) * 0.0005
       }));
+      // Asked for, but nothing came back: say so, rather than look like nothing happened.
+      if (call.debugSent && call.status && !call.calls) {
+        add(call.at, 'Netlify', "↳ No details came back from Netlify for this call (is the deployed function up to date?)", {
+          error: true, order: order - 0.0005
+        });
+      }
       for (const entry of call.jobLog || []) add(entry.at, 'Job', entry.text);
     }
 
@@ -181,14 +199,16 @@
         ? lines.slice().reverse().map(line => {
           const row = html('div', `bot-log-line${line.error ? ' is-error' : ''}`);
           const text = html('span', '', line.text);
-          text.append(' ', html('span', 'debug-service', `(${serviceOf(line.source, line.text)})`));
+          text.append(' ', html('span', 'debug-service', `(${line.service})`));
           row.append(
             html('time', 'bot-log-time', timeFormat.format(line.at)),
             html('span', `debug-source is-${line.source.toLowerCase()}`, line.source),
             text
           );
           // Hovering a line says what that call did.
-          const description = describe(line.source, line.text);
+          const passedOn = line.source === 'Page' && line.service !== 'Netlify'
+            ? ` Netlify passed it on to ${line.service}.` : '';
+          const description = `${describe(line.source, line.text)}${passedOn}`.trim();
           if (description) row.title = description;
           return row;
         })

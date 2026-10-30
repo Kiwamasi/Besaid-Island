@@ -58,9 +58,10 @@
 
     const started = performance.now();
     // POSTs are named by their action ("POST debug"), the rest by their query.
+    // debugSent: the call asked for the server's details, so their absence can be shown.
     const call = {
       at: Date.now(), method, query: query || (body?.action ? body.action : body?.game ? 'save game' : '/'),
-      status: 0, ms: 0, calls: null, jobLog: null
+      status: 0, ms: 0, calls: null, jobLog: null, debugSent: Boolean(headers['X-Debug'])
     };
     let response;
     try {

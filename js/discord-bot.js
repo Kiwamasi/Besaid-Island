@@ -27,14 +27,20 @@
     return label;
   }
 
-  // A run happens at the top of every minute; the status is asked for this long after,
-  // the same moment js/energy-live.js asks for the reading, so both show the same run.
-  // Netlify sometimes starts the run late: if the status is still the last run's, it's
-  // asked again every RECHECK_MS, up to MAX_RECHECKS times.
+  // A run happens at the top of every minute; the status is asked for a few seconds
+  // (settle) after, like js/energy-live.js asks for the reading, so both show the same
+  // run. If the status is still the last run's, the run is late: it's asked again every
+  // RECHECK_MS, up to MAX_RECHECKS times, and settle grows by SETTLE_STEP_MS (up to
+  // MAX_SETTLE_MS) so it's usually one call a minute; it eases back by SETTLE_EASE_MS
+  // each minute the first try finds the new run.
   const RUN_SETTLE_MS = 6000;
+  const SETTLE_STEP_MS = 5000;
+  const SETTLE_EASE_MS = 1000;
+  const MAX_SETTLE_MS = 21000;
   const MINUTE_MS = 60000;
   const RECHECK_MS = 5000;
   const MAX_RECHECKS = 3;
+  let settle = RUN_SETTLE_MS;
 
   let version = 0;
   // Stops the previous panel's countdown and polling when the panel is shown again.
@@ -298,13 +304,15 @@
         return;
       }
       if (late && rechecks < MAX_RECHECKS) {
+        if (!rechecks) settle = Math.min(settle + SETTLE_STEP_MS, MAX_SETTLE_MS);
         rechecks++;
         schedule(Date.now() + RECHECK_MS);
         return;
       }
+      if (!rechecks && !late) settle = Math.max(settle - SETTLE_EASE_MS, RUN_SETTLE_MS);
       rechecks = 0;
       // A few seconds after the next run, so its result is there to show.
-      schedule(nextRun() + RUN_SETTLE_MS);
+      schedule(nextRun() + settle);
     }
 
     let dueAt = null;
@@ -337,7 +345,7 @@
       if (!container.isConnected) stopPolling();
       else showCountdown();
     }, 1000);
-    if (settings.enabled) schedule(nextRun() + RUN_SETTLE_MS);
+    if (settings.enabled) schedule(nextRun() + settle);
 
     showStatus();
     showLog();

@@ -23,14 +23,20 @@
   const SVG = 'http://www.w3.org/2000/svg';
   // The site API only hands back what the scheduled Netlify job saved from Octopus at
   // the top of each minute, the same run that sets the Discord nickname. So the page
-  // asks once a minute, SETTLE_MS after the run, to show the reading the nickname got
-  // (js/discord-bot.js times its status checks the same way). Netlify sometimes starts
-  // the job late: if the answer is still the last run's, it asks again every RECHECK_MS,
-  // up to MAX_RECHECKS times.
+  // asks once a minute, a few seconds (settle) after the run, to show the reading the
+  // nickname got (js/discord-bot.js times its status checks the same way). If the answer
+  // is still the last run's, the job is late: it asks again every RECHECK_MS, up to
+  // MAX_RECHECKS times, and learns to wait SETTLE_STEP_MS longer from then on (up to
+  // MAX_SETTLE_MS), so it's usually one call a minute. Each minute the first try finds
+  // the new run, settle creeps back by SETTLE_EASE_MS, down to SETTLE_MS.
   const RUN_MS = 60000;
   const SETTLE_MS = 6000;
+  const SETTLE_STEP_MS = 5000;
+  const SETTLE_EASE_MS = 1000;
+  const MAX_SETTLE_MS = 21000;
   const RECHECK_MS = 5000;
   const MAX_RECHECKS = 3;
+  let settle = SETTLE_MS;
   // The job updates the history every 5 minutes while it's still fetching older days and
   // every 15 after, and says when the next update is due (nextAt), so "All" asks for the
   // newest day again HISTORY_SETTLE_MS after that. If that answer is still the old one
@@ -304,13 +310,13 @@
     return { chart, restore: () => (state.hoverTime !== null && points.length ? setActive(nearest(state.hoverTime)) : null) };
   }
 
-  // When to ask next: SETTLE_MS after the next run, and never for the run that saved
+  // When to ask next: settle after the next run, and never for the run that saved
   // updatedAt again.
   function nextRunAt(updatedAt) {
     const now = Date.now();
-    let at = Math.floor(now / RUN_MS) * RUN_MS + SETTLE_MS;
+    let at = Math.floor(now / RUN_MS) * RUN_MS + settle;
     if (at <= now) at += RUN_MS;
-    if (updatedAt) at = Math.max(at, Math.floor(updatedAt / RUN_MS) * RUN_MS + RUN_MS + SETTLE_MS);
+    if (updatedAt) at = Math.max(at, Math.floor(updatedAt / RUN_MS) * RUN_MS + RUN_MS + settle);
     return at;
   }
 
@@ -597,9 +603,11 @@
           current.rechecks = 0;
           nextAt = null;
         } else if (late && current.rechecks < MAX_RECHECKS) {
+          if (!current.rechecks) settle = Math.min(settle + SETTLE_STEP_MS, MAX_SETTLE_MS);
           current.rechecks++;
           nextAt = Date.now() + RECHECK_MS;
         } else {
+          if (!current.rechecks && !late) settle = Math.max(settle - SETTLE_EASE_MS, SETTLE_MS);
           current.rechecks = 0;
           nextAt = nextRunAt(live.updatedAt);
         }

@@ -568,7 +568,7 @@
     const body = await response.clone().json().catch(() => null);
     if (!body || typeof body !== 'object' || Array.isArray(body)) return response;
     const now = Date.now();
-    body._debug = [{ at: now - 40, text: 'Local mock: answered in this browser, nothing sent to Netlify' }];
+    body._debug = [{ at: now - 40, text: `Local mock: answered ${url.search || options.method || 'GET'} in this browser, nothing sent to Netlify` }];
     if (url.searchParams.has('energy-live')) {
       const run = Math.floor(now / 60000) * 60000 + 1000;
       body.jobLog = [
