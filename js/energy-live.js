@@ -14,6 +14,8 @@
 //                   ('YYYY-MM-DD', or null for the newest), asked for only while "All" is
 //                   chosen: { days, date, from, to, points: [[time, watts], …], complete,
 //                   updatedAt, nextAt, error }
+//   loadArchive(date)  resolves to the site API's ?energy-archive answer for that UK day,
+//                   { date, from, step: 10, watts: [...] }, for Export on "All"
 //   setPaused(on)   resolves to { paused } once readings are paused (or resumed) on the
 //                   site API; without it there's no Pause button. While paused, ?energy-live
 //                   answers with paused: true and the saved readings, and the page stops asking.
@@ -75,6 +77,23 @@
   const zoneFormat = new Intl.DateTimeFormat('en-GB', { ...london, timeZoneName: 'shortOffset' });
   // A 'YYYY-MM-DD' day's name, like "Thu 29 Oct", read as UTC so it's that date anywhere.
   const dayNameFormat = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short' });
+  // "2026-10-30 13:00:10", UK time, for the exported file.
+  const stampFormat = new Intl.DateTimeFormat('en-CA', {
+    ...london, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+  });
+  const stamp = time => stampFormat.format(time).replace(', ', ' ');
+
+  // Saves rows of [time, watts] as a plain text file in the browser's downloads.
+  function downloadReadings(rows, heading, name) {
+    const text = [...heading.map(line => `# ${line}`), '# time (UK)\twatts', ...rows.map(([time, watts]) => `${stamp(time)}\t${watts}`)].join('\n');
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(new Blob([`${text}\n`], { type: 'text/plain' }));
+    link.download = name;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  }
   const dayName = date => {
     const [year, month, day] = date.split('-').map(Number);
     return dayNameFormat.format(Date.UTC(year, month - 1, day));
@@ -322,7 +341,7 @@
 
   let session = null;
 
-  function start(container, { load, loadHistory = null, setPaused = null, onUpdate = () => {} }) {
+  function start(container, { load, loadHistory = null, loadArchive = null, setPaused = null, onUpdate = () => {} }) {
     stop();
     const now = html('div', 'energy-live-now');
     const value = html('strong', 'energy-live-value', '–');
@@ -352,8 +371,14 @@
     const pauseButton = html('button', 'profile-button energy-live-pause', 'Pause');
     pauseButton.type = 'button';
     pauseButton.hidden = !setPaused;
+    // Downloads the open tab's readings as a .txt file (see exportReadings).
+    const exportButton = html('button', 'profile-button', 'Export');
+    exportButton.type = 'button';
+    exportButton.title = "Download the readings shown, every 10 seconds, as a .txt file";
+    const actions = html('div', 'energy-live-actions');
+    actions.append(exportButton, pauseButton);
     const controls = html('div', 'energy-live-controls');
-    controls.append(tabs, pauseButton);
+    controls.append(tabs, actions);
     // "All": a day at a time, like the half-hourly chart below (js/energy-chart.js).
     const previousDay = html('button', 'profile-button', '‹ Previous day');
     const nextDay = html('button', 'profile-button', 'Next day ›');
@@ -637,6 +662,53 @@
       if (at !== null) current.timer = setTimeout(tick, at - Date.now());
       showCountdown();
     }
+
+    // Export: 15 min and 1 hour save the 10-second readings already on the page. "All"
+    // saves the shown day's 10-second readings from the archive (one request), or, for a
+    // day not archived yet (like today), its 5-minute averages, said so in the file.
+    async function exportReadings() {
+      const view = VIEWS[current.view];
+      if (current.view !== 'all') {
+        const live = current.live;
+        if (!live) return;
+        const end = live.updatedAt || Date.now();
+        const rows = live.points.filter(([time]) => time >= end - view.window && time <= end);
+        if (!rows.length) return;
+        downloadReadings(rows, [
+          'Home Mini electricity use: 10-second readings',
+          `${stamp(rows[0][0])} to ${stamp(rows.at(-1)[0])} (${view.label})`
+        ], `home-mini-10s-${stamp(rows[0][0]).replace(/[: ]/g, '-')}-${view.label.replace(' ', '')}.txt`);
+        return;
+      }
+      const history = current.history;
+      if (!history) return;
+      exportButton.disabled = true;
+      try {
+        let rows = null;
+        if (loadArchive) {
+          try {
+            const day = await loadArchive(history.date);
+            rows = day.watts.map((watts, slot) => [day.from + slot * day.step * 1000, watts]).filter(([, watts]) => watts !== null);
+          } catch (error) {
+            if (error.status !== 404) throw error;
+          }
+        }
+        const tenSeconds = Boolean(rows?.length);
+        if (!tenSeconds) rows = history.date === current.days.at(-1) ? joinHistory(history, current.live) : history.points;
+        if (!rows.length) return;
+        downloadReadings(rows, [
+          tenSeconds
+            ? 'Home Mini electricity use: 10-second readings'
+            : "Home Mini electricity use: 5-minute averages (this day isn't in the 10-second archive yet)",
+          `${dayName(history.date)} ${history.date}`
+        ], `home-mini-${tenSeconds ? '10s' : '5min'}-${history.date}.txt`);
+      } catch (error) {
+        showNote(`Export failed: ${error.message}`);
+      } finally {
+        exportButton.disabled = false;
+      }
+    }
+    exportButton.addEventListener('click', exportReadings);
 
     pauseButton.addEventListener('click', async () => {
       const paused = !current.paused;

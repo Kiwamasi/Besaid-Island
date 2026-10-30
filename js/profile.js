@@ -174,6 +174,7 @@ function showAdminPanel() {
     window.energyLive.start(energyLiveBox, {
       load: () => account.request('GET', null, '?energy-live'),
       loadHistory: date => account.request('GET', null, `?energy-history=${date || 'newest'}`),
+      loadArchive: date => account.request('GET', null, `?energy-archive=${date}`),
       setPaused: paused => account.request('POST', { action: 'energy-settings', paused }),
       onUpdate: live => {
         liveToday = live?.today || null;

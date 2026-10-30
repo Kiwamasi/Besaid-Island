@@ -21,6 +21,8 @@ const ADMIN_USERNAME = 'kiwamari';
 const ADMIN_DISPLAY_NAME = 'Kiwamari';
 // Page views and client/server errors shown on the About (stats) page.
 const STATS_STORE_NAME = 'site-stats';
+// The 10-second archive's day files, written by the scheduled job (netlify/functions/wattnick.mjs).
+const ARCHIVE_STORE_NAME = 'energy-archive';
 const VIEWS_KEY = 'views';
 const ERRORS_KEY = 'errors';
 const MAX_ERRORS = 50;
@@ -799,6 +801,18 @@ export default async (request, context) => {
           });
         }
         return respond(request, 200, history);
+      }
+
+      // ?energy-archive=YYYY-MM-DD: that day's 10-second readings from the archive the
+      // scheduled job keeps (netlify/lib/octopus.mjs, archiveTenSeconds), for the live
+      // panel's Export on the "All" tab. One store read; never asks Octopus.
+      if (params.has('energy-archive')) {
+        if (!session?.isAdmin) return respond(request, 403, { error: 'Only the admin can see energy use' });
+        const date = params.get('energy-archive');
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return respond(request, 400, { error: 'Invalid day' });
+        const day = await getStore({ name: ARCHIVE_STORE_NAME, consistency: 'strong' }).get(`ten-seconds/${date}`, { type: 'json' });
+        if (!day) return respond(request, 404, { error: 'That day has no 10-second archive yet' });
+        return respond(request, 200, day);
       }
 
       // ?wattnick: the Discord nickname bot's settings and status, for the admin panel.

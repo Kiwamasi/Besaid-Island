@@ -546,6 +546,12 @@
   margin: 0.7rem 0 0.4rem;
 }
 
+/* Export and Pause / Resume, together on the right. */
+.energy-live-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
 .energy-live-tabs {
   display: inline-flex;
   gap: 3px;

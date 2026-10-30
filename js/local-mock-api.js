@@ -326,6 +326,16 @@
       }
       // Made-up five-minute readings for the last week, a day at a time, in the shape of
       // readSavedHistory (local days, which is close enough for the UI).
+      // Made-up 10-second readings for a past day, in the shape of the archive's day files.
+      // Today isn't archived yet, as on the real site.
+      if (url.searchParams.has('energy-archive')) {
+        if (!user?.isAdmin) return json(403, { error: 'Only the admin can see energy use' });
+        const [year, month, day] = String(url.searchParams.get('energy-archive')).split('-').map(Number);
+        const from = new Date(year, month - 1, day).getTime();
+        if (!(from < new Date().setHours(0, 0, 0, 0))) return json(404, { error: 'That day has no 10-second archive yet' });
+        const watts = Array.from({ length: 8640 }, (unused, slot) => Math.round(230 + 60 * Math.sin(slot / 90) + (slot % 1400 < 120 ? 2600 : 0)));
+        return json(200, { date: url.searchParams.get('energy-archive'), from, step: 10, watts });
+      }
       if (url.searchParams.has('energy-history')) {
         if (!user?.isAdmin) return json(403, { error: 'Only the admin can see energy use' });
         const now = Date.now();

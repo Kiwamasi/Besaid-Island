@@ -59,6 +59,7 @@
     [/^\?energy=fresh/, 'Asked for a fresh electricity summary: Octopus is asked if the saved one is over 5 minutes old.'],
     [/^\?energy=/, 'Fetched the electricity summary (tiles and half-hourly chart), saved for 30 minutes.'],
     [/^\?energy-live/, "Fetched the Home Mini's latest readings the scheduled job saved. Doesn't ask Octopus."],
+    [/^\?energy-archive/, "Fetched a day's 10-second readings from the archive, for Export. Doesn't ask Octopus."],
     [/^\?energy-history/, "Fetched one day of the 5-minute history for the \"All\" tab. Doesn't ask Octopus."],
     [/^\?wattnick=status/, "Fetched the Discord bot's status and log. Doesn't ask Discord."],
     [/^\?wattnick/, "Fetched the Discord bot's settings, status and the servers it's in (asks Discord for those)."],
