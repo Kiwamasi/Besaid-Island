@@ -333,6 +333,59 @@
   font-size: 0.75rem;
 }
 
+/* The Day by day / Trend switch (the tabs themselves are styled with the live chart's). */
+.energy-chart-tabs {
+  margin-bottom: 0.6rem;
+}
+
+.energy-trend-svg {
+  cursor: crosshair;
+}
+
+.energy-trend-daily {
+  fill: none;
+  stroke: var(--site-accent);
+  stroke-width: 1;
+  stroke-opacity: 0.45;
+  stroke-linejoin: round;
+}
+
+.energy-trend-week {
+  fill: none;
+  stroke: var(--site-accent);
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.energy-trend-guide {
+  stroke: var(--site-line-strong);
+  stroke-dasharray: 3 3;
+}
+
+.energy-trend-legend {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 0.3rem;
+  color: var(--site-muted);
+  font-size: 0.72rem;
+}
+
+.energy-trend-key::before {
+  content: '';
+  display: inline-block;
+  width: 1.1rem;
+  margin-right: 0.35rem;
+  vertical-align: middle;
+  border-top: 2.5px solid var(--site-accent);
+}
+
+.energy-trend-key.is-daily::before {
+  border-top-width: 1px;
+  opacity: 0.45;
+}
+
 .profile-button:disabled {
   cursor: default;
   opacity: 0.4;

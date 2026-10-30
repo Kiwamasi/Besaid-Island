@@ -406,6 +406,13 @@
             });
             return { date: new Date(dayStart).toLocaleDateString('en-CA'), readings };
           }),
+          // 400 past days: more in winter, less at weekends, and some day-to-day wobble.
+          trend: Array.from({ length: 400 }, (unused, index) => {
+            const day = new Date(midnight - (400 - index) * 86400000);
+            const kwh = 7 + 3 * Math.cos((day.getMonth() + 0.5) / 12 * 2 * Math.PI)
+              + ([0, 6].includes(day.getDay()) ? 1.5 : 0) + Math.sin(index * 2.3) * 1.2;
+            return [day.toLocaleDateString('en-CA'), Math.round(kwh * 1000) / 1000, 48];
+          }),
           periods: {
             today: period(midnight, 0),
             yesterday: { ...period(midnight - 86400000, 1), to: midnight },

@@ -23,6 +23,9 @@ const DAY_MS = 86400000;
 const REQUEST_TIMEOUT_MS = 20000;
 // The profile's half-hourly chart covers the days with readings in this many past days.
 const CHART_DAYS = 31;
+// The chart's Trend view: a total for each day with readings, this far back. 500 days of
+// half hours fit in one page of Octopus's answer (25,000), so it's still one request.
+const TREND_DAYS = 500;
 
 export function octopusConfigured() {
   return Boolean(process.env.OCTOPUS_API_KEY && process.env.OCTOPUS_MPAN && process.env.OCTOPUS_SERIAL);
@@ -246,6 +249,9 @@ async function readTariff(now) {
 // the meter's half-hourly readings. Each period: { from, to, kwh }.
 // days: the half-hourly readings for the chart, for each UK day in the last CHART_DAYS
 // that has any, oldest first: [{ date: 'YYYY-MM-DD', readings: [[start, kWh], …] }].
+// trend: each UK day in the last TREND_DAYS with readings, oldest first:
+// [[date, kWh, half hours read], …]. The count lets a part day (or a clock-change day)
+// be averaged over the hours it actually has.
 export async function readEnergySummary(now = Date.now()) {
   const { year, month, day } = londonDate(now);
   const daysSinceMonday = (new Date(Date.UTC(year, month - 1, day)).getUTCDay() + 6) % 7;
@@ -258,7 +264,8 @@ export async function readEnergySummary(now = Date.now()) {
     year: { from: londonMidnight(year, 1, 1), to: now }
   };
   const chartFrom = londonMidnight(year, month, day - CHART_DAYS);
-  const from = Math.min(chartFrom, ...Object.values(periods).map(period => period.from));
+  const from = Math.min(chartFrom, londonMidnight(year, month, day - TREND_DAYS),
+    ...Object.values(periods).map(period => period.from));
   const round = (value, places) => Math.round(value * 10 ** places) / 10 ** places;
 
   const mpan = encodeURIComponent(process.env.OCTOPUS_MPAN);
@@ -273,12 +280,17 @@ export async function readEnergySummary(now = Date.now()) {
   const totals = Object.fromEntries(Object.entries(periods).map(([name, period]) => [name, { ...period, kwh: 0 }]));
   let latestReading = null;
   const chartDays = new Map();
+  const trend = new Map();
   for (const reading of readings) {
     const start = Date.parse(reading.interval_start);
     const kwh = Number(reading.consumption) || 0;
     latestReading = Math.max(latestReading || 0, Date.parse(reading.interval_end));
+    const date = londonDay.format(new Date(start));
+    const dayTotal = trend.get(date) || [date, 0, 0];
+    dayTotal[1] += kwh;
+    dayTotal[2] += 1;
+    trend.set(date, dayTotal);
     if (start >= chartFrom) {
-      const date = londonDay.format(new Date(start));
       if (!chartDays.has(date)) chartDays.set(date, []);
       chartDays.get(date).push([start, round(kwh, 3)]);
     }
@@ -293,7 +305,9 @@ export async function readEnergySummary(now = Date.now()) {
     latestReading,
     periods: totals,
     days: [...chartDays].sort(([first], [second]) => first.localeCompare(second))
-      .map(([date, dayReadings]) => ({ date, readings: dayReadings.sort((first, second) => first[0] - second[0]) }))
+      .map(([date, dayReadings]) => ({ date, readings: dayReadings.sort((first, second) => first[0] - second[0]) })),
+    trend: [...trend.values()].sort(([first], [second]) => first.localeCompare(second))
+      .map(([date, kwh, halfHours]) => [date, round(kwh, 3), halfHours])
   };
 }
 

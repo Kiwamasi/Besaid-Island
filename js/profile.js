@@ -207,11 +207,11 @@ async function loadEnergy(fresh = false) {
 }
 
 function showEnergy(summary) {
-  const { tariff, latestReading, updatedAt, days } = summary;
+  const { tariff, latestReading, updatedAt, days, trend } = summary;
   energySummary = summary;
-  // Half-hourly chart of past days (js/energy-chart.js). A summary saved before the
-  // chart existed has no days; Refresh fetches them.
-  if (days) window.energyChart.show(energyChart, days);
+  // Half-hourly chart of past days and the trend line (js/energy-chart.js). A summary
+  // saved before the chart existed has no days; Refresh fetches them.
+  if (days) window.energyChart.show(energyChart, days, trend);
   else energyChart.replaceChildren(Object.assign(document.createElement('p'), {
     className: 'energy-chart-empty', textContent: 'Press Refresh to load the chart.'
   }));
