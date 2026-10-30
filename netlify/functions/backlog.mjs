@@ -708,9 +708,11 @@ export default async (request, context) => {
       const params = new URL(request.url).searchParams;
       const session = await activeSession(request);
       wantsDebug(request, session);
-      const user = session ? await publicUser(session.username) : null;
+      // The signed-in person's details, read only for the answers that include them
+      // (?session and the backlog), not on every request.
+      const currentUser = () => (session ? publicUser(session.username) : null);
       if (params.has('session')) {
-        return respond(request, 200, { user });
+        return respond(request, 200, { user: await currentUser() });
       }
       // Errors are only included for the admin.
       if (params.has('stats')) {
@@ -830,7 +832,7 @@ export default async (request, context) => {
       return respond(request, 200, {
         games: await listGames(store, owner),
         owner: { username: displayName(owner) },
-        user
+        user: await currentUser()
       });
     }
 

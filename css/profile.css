@@ -239,6 +239,22 @@
   cursor: help;
 }
 
+/* A page call or job run that opens to show its calls. */
+.debug-log .bot-log-line.is-group {
+  cursor: pointer;
+}
+
+.debug-log .bot-log-line.is-group:focus-visible {
+  outline: 1px solid var(--site-accent);
+  outline-offset: 1px;
+}
+
+/* The calls inside an open group, a little in and quieter. */
+.debug-log .bot-log-line.is-detail {
+  padding-left: 1rem;
+  color: var(--site-muted);
+}
+
 .debug-log .bot-log-line:hover {
   background: rgba(241, 240, 235, 0.06);
 }

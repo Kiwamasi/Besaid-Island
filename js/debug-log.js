@@ -149,71 +149,163 @@
     head.append(html('h3', 'profile-admin-subtitle', 'Debug log'), clear);
     column.replaceChildren(head, note, box);
 
-    // Lines newest last; job lines are kept by time and text so each shows once.
-    let lines = [];
-    const seen = new Set();
+    // One group per page call and one per scheduled job run, each a single line with a
+    // summary ("Blobs 3 reads · Octopus 1"); clicking it shows the calls inside. groups
+    // is oldest first; expanded holds the keys of the open ones, kept across redraws.
+    let groups = [];
+    const byKey = new Map();
+    const expanded = new Set();
     const current = { renew: null };
     session = current;
 
-    // order places a line: what the server did for a page call goes straight under that
-    // call (just before it in time, as the newest is shown first), in the order done.
-    function add(at, source, text, { error = false, order = at, service = serviceOf(source, text) } = {}) {
-      const key = `${source}|${at}|${text}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      lines.push({ at, source, text, error, order, service });
+    // "Blobs 3 reads, 1 write · Octopus 1 · Discord 1" for a group's calls.
+    function summarise(details) {
+      let reads = 0;
+      let writes = 0;
+      const others = new Map();
+      for (const { text } of details) {
+        const call = text.replace(/^↳ /, '');
+        const blob = call.match(/^Blobs (\w+)(?: \+ (\w+))?/);
+        if (blob) {
+          for (const method of [blob[1], blob[2]].filter(Boolean)) {
+            if (/^(set|setJSON|delete)$/.test(method)) writes++;
+            else reads++;
+          }
+        } else if (!call.startsWith('No details')) {
+          const service = serviceOf('Netlify', call);
+          others.set(service, (others.get(service) || 0) + 1);
+        }
+      }
+      const parts = [];
+      if (reads || writes) {
+        parts.push(`Blobs ${[reads && `${reads} ${reads === 1 ? 'read' : 'reads'}`, writes && `${writes} ${writes === 1 ? 'write' : 'writes'}`].filter(Boolean).join(', ')}`);
+      }
+      for (const [service, count] of others) parts.push(`${service} ${count}`);
+      return parts.join(' · ');
     }
 
-    // Calls made in the same millisecond each keep their own lines together.
+    // Who a group went to: Netlify, or the outside services it reached through Netlify.
+    function serviceOfGroup(details) {
+      const outside = [...new Set(details.map(({ text }) => serviceOf('Netlify', text)).filter(service => service !== 'Netlify'))];
+      return outside.length ? outside.join(' + ') : 'Netlify';
+    }
+
+    // Calls made in the same millisecond keep their own places. pageSeen stops a call
+    // being added twice (ticking Debug again replays the page's recent calls).
     let sequence = 0;
+    const pageSeen = new WeakSet();
     function addCall(call) {
+      if (pageSeen.has(call)) return;
+      pageSeen.add(call);
       const answer = call.status ? `${call.status}` : 'no answer';
-      const inner = call.calls || [];
-      // A call Netlify only passed on to Octopus (or Discord, or Google) counts as theirs.
-      const outside = [...new Set(inner.map(entry => serviceOf('Netlify', entry.text)).filter(service => service !== 'Netlify'))];
-      // Fractions of a millisecond: big enough to survive rounding at today's timestamps
-      // (about 1.7 trillion, where a double resolves about 0.0002), small enough to keep
-      // each call within its millisecond with room for 40 server lines under it.
-      const order = call.at + (++sequence % 50) * 0.02;
-      add(call.at, 'Page', `${call.method} ${call.query} → ${answer} · ${call.ms} ms`, {
-        error: call.status === 0 || call.status >= 400,
-        order,
-        service: outside.length ? outside.join(' + ') : 'Netlify'
-      });
-      inner.slice(-40).forEach((entry, index, shown) => add(entry.at, 'Netlify', `↳ ${entry.text}`, {
-        order: order - (shown.length - index) * 0.0005
-      }));
+      const details = (call.calls || []).map(entry => ({ at: entry.at, text: entry.text }));
       // Asked for, but nothing came back: say so, rather than look like nothing happened.
-      if (call.debugSent && call.status && !call.calls) {
-        add(call.at, 'Netlify', "↳ No details came back from Netlify for this call (is the deployed function up to date?)", {
-          error: true, order: order - 0.0005
-        });
+      const missing = call.debugSent && call.status && !call.calls;
+      if (missing) details.push({ at: call.at, text: 'No details came back from Netlify for this call', error: true });
+      const group = {
+        key: `page|${call.at}|${++sequence}`,
+        at: call.at,
+        order: call.at + (sequence % 50) * 0.02,
+        source: 'Page',
+        text: `${call.method} ${call.query} → ${answer} · ${call.ms} ms`,
+        error: call.status === 0 || call.status >= 400 || missing,
+        details,
+        seen: new Set()
+      };
+      groups.push(group);
+      for (const entry of call.jobLog || []) addJobEntry(entry);
+    }
+
+    // The job's calls come as a list each minute; they're grouped by run (calls within
+    // a few seconds of each other) and each kept once.
+    // The job's saved list comes back whole each minute; Clear skips what came before it.
+    let clearedAt = 0;
+    function addJobEntry(entry) {
+      if (entry.at < clearedAt) return;
+      const minute = Math.floor((entry.at - 30000) / 60000);
+      const key = `job|${minute}`;
+      let group = byKey.get(key);
+      if (!group) {
+        group = { key, at: entry.at, order: entry.at, source: 'Job', text: 'Scheduled run', error: false, details: [], seen: new Set() };
+        byKey.set(key, group);
+        groups.push(group);
       }
-      for (const entry of call.jobLog || []) add(entry.at, 'Job', entry.text);
+      const id = `${entry.at}|${entry.text}`;
+      if (group.seen.has(id)) return;
+      group.seen.add(id);
+      group.details.push({ at: entry.at, text: entry.text });
+      group.at = Math.min(group.at, entry.at);
+      group.order = group.at;
+    }
+
+    function line(at, source, text, service, { error = false, description = '' } = {}) {
+      const row = html('div', `bot-log-line${error ? ' is-error' : ''}`);
+      const words = html('span', '', text);
+      words.append(' ', html('span', 'debug-service', `(${service})`));
+      row.append(html('time', 'bot-log-time', timeFormat.format(at)), html('span', `debug-source is-${source.toLowerCase()}`, source), words);
+      if (description) row.title = description;
+      return row;
     }
 
     function render() {
-      lines.sort((first, second) => first.order - second.order);
-      if (lines.length > MAX_LINES) lines = lines.slice(-MAX_LINES);
-      box.replaceChildren(...(lines.length
-        ? lines.slice().reverse().map(line => {
-          const row = html('div', `bot-log-line${line.error ? ' is-error' : ''}`);
-          const text = html('span', '', line.text);
-          text.append(' ', html('span', 'debug-service', `(${line.service})`));
-          row.append(
-            html('time', 'bot-log-time', timeFormat.format(line.at)),
-            html('span', `debug-source is-${line.source.toLowerCase()}`, line.source),
-            text
-          );
-          // Hovering a line says what that call did.
-          const passedOn = line.source === 'Page' && line.service !== 'Netlify'
-            ? ` Netlify passed it on to ${line.service}.` : '';
-          const description = `${describe(line.source, line.text)}${passedOn}`.trim();
-          if (description) row.title = description;
-          return row;
-        })
-        : [html('div', 'bot-log-line bot-log-empty', 'No calls yet. They show here as they happen.')]));
+      groups.sort((first, second) => first.order - second.order);
+      if (groups.length > MAX_LINES) {
+        for (const gone of groups.slice(0, groups.length - MAX_LINES)) byKey.delete(gone.key);
+        groups = groups.slice(-MAX_LINES);
+      }
+      if (!groups.length) {
+        box.replaceChildren(html('div', 'bot-log-line bot-log-empty', 'No calls yet. They show here as they happen.'));
+        return;
+      }
+      const rows = [];
+      for (const group of groups.slice().reverse()) {
+        const details = group.details.slice().sort((first, second) => first.at - second.at);
+        const summary = summarise(details);
+        const service = serviceOfGroup(details);
+        const open = expanded.has(group.key);
+        const passedOn = group.source === 'Page' && service !== 'Netlify' ? ` Netlify passed it on to ${service}.` : '';
+        const description = group.source === 'Job'
+          ? 'The scheduled job that runs every minute: the live reading, the Discord nickname, and the history or archive when due.'
+          : `${describe('Page', group.text)}${passedOn}`.trim();
+        const text = `${details.length ? (open ? '▾ ' : '▸ ') : ''}${group.text}${summary ? ` · ${summary}` : ''}`;
+        const row = line(group.at, group.source, text, service, { error: group.error, description });
+        if (details.length) {
+          row.classList.add('is-group');
+          row.tabIndex = 0;
+          row.setAttribute('role', 'button');
+          row.setAttribute('aria-expanded', String(open));
+          row.dataset.key = group.key;
+        }
+        rows.push(row);
+        if (!open) continue;
+        for (const detail of details) {
+          const detailRow = line(detail.at, 'Netlify', `↳ ${detail.text}`, serviceOf('Netlify', detail.text), {
+            error: detail.error, description: describe('Netlify', detail.text)
+          });
+          detailRow.classList.add('is-detail');
+          rows.push(detailRow);
+        }
+      }
+      box.replaceChildren(...rows);
     }
+
+    // Clicking (or Enter / Space on) a group opens or closes it.
+    function toggleGroup(row) {
+      const key = row?.dataset.key;
+      if (!key) return;
+      if (expanded.has(key)) expanded.delete(key);
+      else expanded.add(key);
+      render();
+      box.querySelector(`[data-key="${CSS.escape(key)}"]`)?.focus();
+    }
+    box.addEventListener('click', event => toggleGroup(event.target.closest('.is-group')));
+    box.addEventListener('keydown', event => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      const row = event.target.closest('.is-group');
+      if (!row) return;
+      event.preventDefault();
+      toggleGroup(row);
+    });
 
     current.onCall = event => {
       if (!window.siteDebug.on) return;
@@ -223,8 +315,10 @@
     document.addEventListener('site-api-call', current.onCall);
 
     clear.addEventListener('click', () => {
-      lines = [];
-      seen.clear();
+      groups = [];
+      byKey.clear();
+      expanded.clear();
+      clearedAt = Date.now();
       render();
     });
 
