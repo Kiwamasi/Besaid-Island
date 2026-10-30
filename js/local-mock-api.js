@@ -368,7 +368,7 @@
           readAt: newest,
           demand: watts(newest),
           points,
-          today: { kwh, cost: Math.round(kwh * 24.5 * 100) / 100 },
+          today: { kwh },
           updatedAt: now,
           paused: localStorage.getItem('mock-energy-paused') === 'true'
         });
@@ -378,30 +378,23 @@
         if (!user?.isAdmin) return json(403, { error: 'Only the admin can see energy use' });
         const now = Date.now();
         const midnight = new Date(now).setHours(0, 0, 0, 0);
-        const period = (from, days) => ({
-          from, to: now, kwh: Math.round(days * 8.4 * 1000) / 1000,
-          unitCost: Math.round(days * 8.4 * 24.5 * 100) / 100, standingCharge: Math.round(days * 51.2 * 100) / 100, complete: true
-        });
+        const period = (from, days) => ({ from, to: now, kwh: Math.round(days * 8.4 * 1000) / 1000 });
         return json(200, {
           tariff: 'E-2R-VAR-22-11-01-C',
-          nightHours: '00:30–07:30 GMT',
-          costs: true,
           latestReading: midnight,
           updatedAt: now,
-          // Five past days of half hours: a made-up evening peak, night rate 00:30-07:30 GMT.
+          // Five past days of half hours: a made-up evening peak.
           days: [5, 4, 3, 2, 1].map(back => {
             const dayStart = midnight - back * 86400000;
             const readings = Array.from({ length: 48 }, (unused, half) => {
               const start = dayStart + half * 1800000;
-              const gmtMinutes = (start % 86400000) / 60000;
-              const night = gmtMinutes >= 30 && gmtMinutes < 450 ? 1 : 0;
               const kwh = Math.round((0.08 + 0.35 * Math.exp(-((half - 37 + back % 3) ** 2) / 18) + (half % 7) * 0.01) * 1000) / 1000;
-              return [start, kwh, Math.round(kwh * (night ? 13.5 : 31.2) * 100) / 100, night];
+              return [start, kwh];
             });
             return { date: new Date(dayStart).toLocaleDateString('en-CA'), readings };
           }),
           periods: {
-            today: { ...period(midnight, 0), complete: true },
+            today: period(midnight, 0),
             yesterday: { ...period(midnight - 86400000, 1), to: midnight },
             week: period(midnight - 3 * 86400000, 3),
             month: period(midnight - 6 * 86400000, 6),

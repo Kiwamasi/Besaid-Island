@@ -135,8 +135,8 @@ colorReset.addEventListener('click', () => saveColor(''));
 
 // ---------- Admin panel (the admin's own profile only) ----------
 
-// Electricity use and costs from Octopus, through the site API, which keeps the API
-// key and meter details to itself and only answers the admin.
+// Electricity use (kWh only, no costs) from Octopus, through the site API, which keeps
+// the API key and meter details to itself and only answers the admin.
 const ENERGY_PERIODS = [
   ['today', 'Today'],
   ['yesterday', 'Yesterday'],
@@ -145,8 +145,6 @@ const ENERGY_PERIODS = [
   ['year', 'This year']
 ];
 const kwhFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
-const poundFormat = new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' });
-const pounds = pence => poundFormat.format(pence / 100);
 const dateTimeFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 let energyShownFor = null;
 let energyVersion = 0;
@@ -154,7 +152,6 @@ let energyVersion = 0;
 // which fills the Today tile: the meter's own half-hourly readings arrive a day late.
 let energySummary = null;
 let liveToday = null;
-
 function showAdminPanel() {
   const show = isOwnProfile() && Boolean(account.user?.isAdmin);
   adminPanel.hidden = !show;
@@ -202,39 +199,28 @@ async function loadEnergy(fresh = false) {
 }
 
 function showEnergy(summary) {
-  const { costs, tariff, nightHours, latestReading, updatedAt, days } = summary;
+  const { tariff, latestReading, updatedAt, days } = summary;
   energySummary = summary;
   // Half-hourly chart of past days (js/energy-chart.js). A summary saved before the
   // chart existed has no days; Refresh fetches them.
-  if (days) window.energyChart.show(energyChart, days, costs);
+  if (days) window.energyChart.show(energyChart, days);
   else energyChart.replaceChildren(Object.assign(document.createElement('p'), {
     className: 'energy-chart-empty', textContent: 'Press Refresh to load the chart.'
   }));
   showEnergyTiles();
   energyNote.textContent = [
     tariff && `Tariff ${tariff}`,
-    nightHours && `Night rate ${nightHours}`,
-    !costs && 'Add OCTOPUS_ACCOUNT on Netlify to see costs',
     latestReading ? `Readings up to ${dateTimeFormat.format(latestReading)}` : 'No readings yet',
     `Checked ${dateTimeFormat.format(updatedAt)}`
   ].filter(Boolean).join(' · ');
 }
 
 function showEnergyTiles() {
-  const { periods, costs } = energySummary;
+  const { periods } = energySummary;
   energyTiles.replaceChildren(...ENERGY_PERIODS.map(([key, label]) => {
-    let period = periods[key];
-    // Today from the Home Mini when it's reporting: its use and unit costs, plus the
-    // standing charge the summary worked out.
+    // Today from the Home Mini when it's reporting.
     const live = key === 'today' && liveToday;
-    if (live) {
-      period = {
-        ...period,
-        kwh: liveToday.kwh,
-        unitCost: liveToday.cost ?? 0,
-        complete: liveToday.cost !== null && period.complete
-      };
-    }
+    const kwhUsed = live ? liveToday.kwh : periods[key].kwh;
     const tile = document.createElement('li');
     tile.className = 'energy-tile';
     const name = document.createElement('span');
@@ -242,18 +228,8 @@ function showEnergyTiles() {
     name.textContent = live ? `${label} (live)` : label;
     const kwh = document.createElement('span');
     kwh.className = 'energy-kwh';
-    kwh.textContent = `${kwhFormat.format(period.kwh)} kWh`;
+    kwh.textContent = `${kwhFormat.format(kwhUsed)} kWh`;
     tile.append(name, kwh);
-    if (costs) {
-      const total = document.createElement('span');
-      total.className = 'energy-cost';
-      // "~" when some of the use couldn't be priced (e.g. a two-rate tariff).
-      total.textContent = `${period.complete ? '' : '~'}${pounds(period.unitCost + period.standingCharge)}`;
-      const split = document.createElement('span');
-      split.className = 'energy-split';
-      split.textContent = `${pounds(period.unitCost)} use · ${pounds(period.standingCharge)} standing`;
-      tile.append(total, split);
-    }
     return tile;
   }));
 }

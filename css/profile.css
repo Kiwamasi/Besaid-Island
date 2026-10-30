@@ -206,17 +206,6 @@
   font-weight: 600;
 }
 
-.energy-cost {
-  color: var(--site-accent);
-  font-size: 0.9rem;
-  font-weight: 600;
-}
-
-.energy-split {
-  color: var(--site-muted);
-  font-size: 0.68rem;
-}
-
 .profile-admin-note {
   margin-top: 0.7rem;
   color: var(--site-muted);
@@ -282,16 +271,11 @@
   stroke-width: 1;
 }
 
-.energy-axis,
-.energy-night-label {
+.energy-axis {
   fill: var(--site-muted);
   font-family: 'IBM Plex Sans', Arial, sans-serif;
   font-size: 10px;
   font-variant-numeric: tabular-nums;
-}
-
-.energy-night-band {
-  fill: rgba(241, 240, 235, 0.05);
 }
 
 .energy-bar {
@@ -503,6 +487,11 @@
 /* "All": the day shown, with previous / next day either side. */
 .energy-live-days {
   margin: 0.3rem 0 0.2rem;
+}
+
+/* .energy-chart-head's display: flex would otherwise show it on the other tabs. */
+.energy-live-days[hidden] {
+  display: none;
 }
 
 .energy-live-note,

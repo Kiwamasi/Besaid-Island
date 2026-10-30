@@ -1,14 +1,11 @@
-// Kiwamari's electricity use and costs from the Octopus Energy API, for the admin panel
-// on their profile page. Everything Octopus needs lives in Netlify's environment
-// variables, never in the repo or the pages:
+// Kiwamari's electricity use (kWh only, no costs) from the Octopus Energy API, for the
+// admin panel on their profile page. Everything Octopus needs lives in Netlify's
+// environment variables, never in the repo or the pages:
 //   OCTOPUS_API_KEY   from the Octopus dashboard (Personal details → API access)
 //   OCTOPUS_MPAN      the electricity meter point's MPAN
 //   OCTOPUS_SERIAL    the electricity meter's serial number
-//   OCTOPUS_ACCOUNT   the account number (A-XXXXXXXX); optional, but needed for costs,
-//                     as it's how the tariff and its prices are found
-//   OCTOPUS_NIGHT_HOURS  for two-rate (Economy 7 style) tariffs only: when the night
-//                     rate applies, in GMT, like "00:30-07:30" (the default). The meter
-//                     keeps GMT all year, so in summer that's an hour later on the clock.
+//   OCTOPUS_ACCOUNT   the account number (A-XXXXXXXX); optional, for the tariff's name,
+//                     and to find the Home Mini
 //   OCTOPUS_DEVICE_ID optional: the Home Mini's smart device ID. Without it, it's
 //                     looked up from OCTOPUS_ACCOUNT (the meter matching OCTOPUS_SERIAL).
 //
@@ -16,10 +13,8 @@
 // GraphQL API rather than the REST one: it reports about every 10 seconds, where the
 // meter's half-hourly readings reach the REST API about a day later.
 //
-// Costs use the account's real tariff for each half hour: the unit rate in force then
-// (so time-of-use tariffs like Agile and Go are priced correctly) plus the daily
-// standing charge, both including VAT. Two-rate tariffs (E-2R-…) have a day and a
-// night price; the API doesn't say which hours are night, hence OCTOPUS_NIGHT_HOURS.
+// No costs are worked out or shown: two-rate tariffs (E-2R-…) have a day and a night
+// price, but the API doesn't say which hours are night, so any cost would be a guess.
 
 const API = 'https://api.octopus.energy/v1';
 const DAY_MS = 86400000;
@@ -223,117 +218,28 @@ function londonMidnight(year, month, day) {
   return utc - londonOffsetMs(utc);
 }
 
-// ---------- Tariffs ----------
+// ---------- Tariff ----------
 
-// Newest first from Octopus; sorted oldest first here, for rateAt. Fixed tariffs list a
-// price for paying by direct debit and one for not; direct debit is assumed.
-function cleanRates(rates) {
-  const directDebit = rates.some(rate => rate.payment_method === 'DIRECT_DEBIT');
-  return rates
-    .filter(rate => !(directDebit && rate.payment_method === 'NON_DIRECT_DEBIT'))
-    .map(rate => ({
-      from: Date.parse(rate.valid_from),
-      to: rate.valid_to ? Date.parse(rate.valid_to) : Infinity,
-      value: rate.value_inc_vat
-    }))
-    .sort((first, second) => first.from - second.from);
-}
-
-// The price in force at that moment, or null.
-function rateAt(rates, time) {
-  let low = 0;
-  let high = rates.length - 1;
-  let found = -1;
-  while (low <= high) {
-    const middle = (low + high) >> 1;
-    if (rates[middle].from <= time) {
-      found = middle;
-      low = middle + 1;
-    } else {
-      high = middle - 1;
-    }
-  }
-  return found !== -1 && time < rates[found].to ? rates[found].value : null;
-}
-
-// A tariff code like "E-1R-AGILE-24-10-01-C" belongs to the product "AGILE-24-10-01".
-function productCode(tariffCode) {
-  return tariffCode.split('-').slice(2, -1).join('-');
-}
-
-// When the night rate applies, as minutes after midnight GMT: { start, end, text }.
-// The night can run past midnight ("23:30-06:30").
-const DEFAULT_NIGHT_HOURS = '00:30-07:30';
-function nightHours() {
-  const parse = text => {
-    const match = text.trim().match(/^(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})$/);
-    if (!match) return null;
-    const [start, end] = [[match[1], match[2]], [match[3], match[4]]].map(([hours, minutes]) => Number(hours) * 60 + Number(minutes));
-    return start < 1440 && end <= 1440 && start !== end ? { start, end } : null;
-  };
-  const hours = parse(process.env.OCTOPUS_NIGHT_HOURS || '') || parse(DEFAULT_NIGHT_HOURS);
-  const clock = minutes => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
-  return { ...hours, text: `${clock(hours.start)}–${clock(hours.end)} GMT` };
-}
-
-function isNight(time, night) {
-  const minutes = Math.floor((time % DAY_MS) / 60000);
-  return night.start < night.end
-    ? minutes >= night.start && minutes < night.end
-    : minutes >= night.start || minutes < night.end;
-}
-
-// The whole period in one request, a page at a time: most tariffs change price only a
-// few times a year, so that's one page. Half-hourly tariffs (Agile, about 17,500 prices
-// a year) take more pages, as Octopus gives at most 1,500 a page. kind is
-// "standard-unit-rates" (one price) or, for two-rate tariffs, "day-unit-rates" /
-// "night-unit-rates".
-async function unitRates(tariffCode, kind, from, to) {
-  const path = `/products/${productCode(tariffCode)}/electricity-tariffs/${tariffCode}/${kind}/`;
-  return cleanRates(await getAll(path, { period_from: iso(from), period_to: iso(to), page_size: 1500 }));
-}
-
-async function standingCharges(tariffCode, from, to) {
-  const path = `/products/${productCode(tariffCode)}/electricity-tariffs/${tariffCode}/standing-charges/`;
-  return cleanRates(await getAll(path, { period_from: iso(from), period_to: iso(to), page_size: 1500 }));
-}
-
-// The meter's tariffs (agreements) that overlap the time asked about, with their prices.
-async function readAgreements(from, to) {
+// The meter's current tariff code, like "E-1R-AGILE-24-10-01-C", from the account; null
+// if there's none now. Only its name is shown: no prices, until they can all be had
+// from Octopus (two-rate tariffs' night hours aren't in the API).
+async function readTariff(now) {
   const account = await octopusGet(`/accounts/${encodeURIComponent(process.env.OCTOPUS_ACCOUNT)}/`);
   const point = account.properties
     ?.flatMap(property => property.electricity_meter_points || [])
     .find(meterPoint => meterPoint.mpan === process.env.OCTOPUS_MPAN);
   if (!point) throw new Error('That MPAN isn\'t on the Octopus account');
-  const agreements = (point.agreements || [])
-    .map(agreement => ({
-      tariff: agreement.tariff_code,
-      from: Date.parse(agreement.valid_from),
-      to: agreement.valid_to ? Date.parse(agreement.valid_to) : Infinity
-    }))
-    .filter(agreement => agreement.from < to && agreement.to > from);
-  return Promise.all(agreements.map(async agreement => {
-    const start = Math.max(from, agreement.from);
-    const end = Math.min(to, agreement.to);
-    const twoRate = agreement.tariff.startsWith('E-2R-');
-    const priced = twoRate || agreement.tariff.startsWith('E-1R-');
-    const [units, nightUnits, standing] = await Promise.all([
-      priced ? unitRates(agreement.tariff, twoRate ? 'day-unit-rates' : 'standard-unit-rates', start, end) : [],
-      twoRate ? unitRates(agreement.tariff, 'night-unit-rates', start, end) : [],
-      standingCharges(agreement.tariff, start, end)
-    ]);
-    return { ...agreement, priced, twoRate, units, nightUnits, standing };
-  }));
+  const current = (point.agreements || []).find(agreement =>
+    Date.parse(agreement.valid_from) <= now && (!agreement.valid_to || now < Date.parse(agreement.valid_to)));
+  return current?.tariff_code || null;
 }
 
 // ---------- Summary ----------
 
-// { tariff, costs, latestReading, periods: { today, yesterday, week, month, year } }.
-// Each period: { from, to, kwh, unitCost, standingCharge, complete } in kWh and pence;
-// complete is false when some of its use couldn't be priced.
+// { tariff, latestReading, periods: { today, yesterday, week, month, year } }, all from
+// the meter's half-hourly readings. Each period: { from, to, kwh }.
 // days: the half-hourly readings for the chart, for each UK day in the last CHART_DAYS
-// that has any, oldest first: [{ date: 'YYYY-MM-DD', readings: [[start, kWh, pence or
-// null if unpriced, 1 if at the night rate else 0], …] }].
+// that has any, oldest first: [{ date: 'YYYY-MM-DD', readings: [[start, kWh], …] }].
 export async function readEnergySummary(now = Date.now()) {
   const { year, month, day } = londonDate(now);
   const daysSinceMonday = (new Date(Date.UTC(year, month - 1, day)).getUTCDay() + 6) % 7;
@@ -351,72 +257,33 @@ export async function readEnergySummary(now = Date.now()) {
 
   const mpan = encodeURIComponent(process.env.OCTOPUS_MPAN);
   const serial = encodeURIComponent(process.env.OCTOPUS_SERIAL);
-  const [readings, agreements] = await Promise.all([
+  const [readings, tariff] = await Promise.all([
     getAll(`/electricity-meter-points/${mpan}/meters/${serial}/consumption/`, {
       period_from: iso(from), page_size: 25000, order_by: 'period'
     }),
-    process.env.OCTOPUS_ACCOUNT ? readAgreements(from, now) : null
+    process.env.OCTOPUS_ACCOUNT ? readTariff(now) : null
   ]);
-  const agreementAt = time => agreements?.find(agreement => agreement.from <= time && time < agreement.to);
-  const night = nightHours();
-  const priceAt = (agreement, time) => {
-    if (!agreement?.priced) return null;
-    return rateAt(agreement.twoRate && isNight(time, night) ? agreement.nightUnits : agreement.units, time);
-  };
 
-  const totals = Object.fromEntries(Object.entries(periods).map(([name, period]) =>
-    [name, { ...period, kwh: 0, unitCost: 0, standingCharge: 0, complete: true }]));
+  const totals = Object.fromEntries(Object.entries(periods).map(([name, period]) => [name, { ...period, kwh: 0 }]));
   let latestReading = null;
   const chartDays = new Map();
   for (const reading of readings) {
     const start = Date.parse(reading.interval_start);
     const kwh = Number(reading.consumption) || 0;
-    const agreement = agreementAt(start);
-    const price = priceAt(agreement, start);
     latestReading = Math.max(latestReading || 0, Date.parse(reading.interval_end));
     if (start >= chartFrom) {
       const date = londonDay.format(new Date(start));
       if (!chartDays.has(date)) chartDays.set(date, []);
-      chartDays.get(date).push([
-        start,
-        round(kwh, 3),
-        price === null ? null : round(kwh * price, 2),
-        agreement?.twoRate && isNight(start, night) ? 1 : 0
-      ]);
+      chartDays.get(date).push([start, round(kwh, 3)]);
     }
     for (const total of Object.values(totals)) {
-      if (start < total.from || start >= total.to) continue;
-      total.kwh += kwh;
-      if (price === null) total.complete = false;
-      else total.unitCost += kwh * price;
+      if (start >= total.from && start < total.to) total.kwh += kwh;
     }
   }
+  for (const total of Object.values(totals)) total.kwh = round(total.kwh, 3);
 
-  // The standing charge is per day, for every day in the period up to today.
-  if (agreements) {
-    for (const total of Object.values(totals)) {
-      const start = londonDate(total.from);
-      for (let offset = 0; ; offset++) {
-        const dayStart = londonMidnight(start.year, start.month, start.day + offset);
-        if (dayStart >= total.to) break;
-        const charge = rateAt(agreementAt(dayStart)?.standing || [], dayStart);
-        if (charge === null) total.complete = false;
-        else total.standingCharge += charge;
-      }
-    }
-  }
-
-  for (const total of Object.values(totals)) {
-    total.kwh = round(total.kwh, 3);
-    total.unitCost = round(total.unitCost, 2);
-    total.standingCharge = round(total.standingCharge, 2);
-  }
-  const current = agreementAt(now);
   return {
-    tariff: current?.tariff || null,
-    // For two-rate tariffs, the night hours used, like "00:30–07:30 GMT".
-    nightHours: current?.twoRate ? night.text : null,
-    costs: Boolean(agreements),
+    tariff,
     latestReading,
     periods: totals,
     days: [...chartDays].sort(([first], [second]) => first.localeCompare(second))
@@ -430,9 +297,8 @@ export async function readEnergySummary(now = Date.now()) {
 // readAt     when the Home Mini's newest reading was taken (ms), or null
 // demand     the power being drawn then, in watts
 // points     [[time, watts], …] every 10 seconds over the last LIVE_WINDOW_MS, oldest first
-// today      { kwh, cost } since midnight UK time, cost in pence with VAT (unit rates
-//            only, no standing charge; null if Octopus didn't price it), or null if
-//            Octopus couldn't say. Up to TODAY_REFRESH_MS old.
+// today      { kwh } since midnight UK time, or null if Octopus couldn't say. Up to
+//            TODAY_REFRESH_MS old.
 //
 // Called once a minute by the scheduled job, never by the page. One request to Octopus:
 // only the readings since the last answer (plus LIVE_OVERLAP_MS), with today's total
@@ -461,7 +327,7 @@ export async function readLiveEnergy(store, now = Date.now()) {
     // (and only sent) when today's total is part of the request.
     data = await graphql(context, `query live($deviceId: String!, $from: DateTime!, $now: DateTime!${todayDue ? ', $midnight: DateTime!' : ''}) {
       recent: smartMeterTelemetry(deviceId: $deviceId, grouping: TEN_SECONDS, start: $from, end: $now) { readAt demand }
-      ${todayDue ? 'today: smartMeterTelemetry(deviceId: $deviceId, grouping: FIVE_MINUTES, start: $midnight, end: $now) { consumptionDelta costDeltaWithTax }' : ''}
+      ${todayDue ? 'today: smartMeterTelemetry(deviceId: $deviceId, grouping: FIVE_MINUTES, start: $midnight, end: $now) { consumptionDelta }' : ''}
     }`, { deviceId, from: iso(from), now: iso(now), ...(todayDue ? { midnight: iso(midnight) } : {}) });
   } catch (error) {
     if (!error.rateLimited) throw error;
@@ -482,16 +348,8 @@ export async function readLiveEnergy(store, now = Date.now()) {
 
   let today = saved.today?.from === midnight ? saved.today : null;
   if (todayDue && data?.today) {
-    let wh = 0;
-    let cost = 0;
-    let priced = data.today.length > 0;
-    for (const reading of data.today) {
-      wh += number(reading.consumptionDelta) || 0;
-      const delta = number(reading.costDeltaWithTax);
-      if (delta === null || !Number.isFinite(delta)) priced = false;
-      else cost += delta;
-    }
-    today = { from: midnight, at: now, kwh: Math.round(wh) / 1000, cost: priced ? Math.round(cost * 100) / 100 : null };
+    const wh = data.today.reduce((sum, reading) => sum + (number(reading.consumptionDelta) || 0), 0);
+    today = { from: midnight, at: now, kwh: Math.round(wh) / 1000 };
   }
 
   // Only over the version read, so a Pause pressed while Octopus was being asked isn't
@@ -655,7 +513,7 @@ function liveAnswer({ at, points = [], today }) {
     readAt: newest?.[0] ?? null,
     demand: newest?.[1] ?? null,
     points,
-    today: today ? { kwh: today.kwh, cost: today.cost } : null,
+    today: today ? { kwh: today.kwh } : null,
     updatedAt: at ?? null
   };
 }

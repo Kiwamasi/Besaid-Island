@@ -9,7 +9,7 @@
 //
 // window.energyLive.start(container, { load, loadHistory, setPaused, onUpdate }):
 //   load()          resolves to the site API's ?energy-live answer:
-//                   { readAt, demand, points: [[time, watts], …], today: { kwh, cost } | null, updatedAt }
+//                   { readAt, demand, points: [[time, watts], …], today: { kwh } | null, updatedAt }
 //   loadHistory(date)  resolves to the site API's ?energy-history answer for that UK day
 //                   ('YYYY-MM-DD', or null for the newest), asked for only while "All" is
 //                   chosen: { days, date, from, to, points: [[time, watts], …], complete,
@@ -75,7 +75,6 @@
   };
   const axisFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
   const kwhFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
-  const poundFormat = new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' });
 
   const power = watts => (watts < 1000
     ? `${Math.round(watts)} W`
@@ -459,10 +458,7 @@
       if (live.today) {
         meta.append(
           html('span', 'energy-live-meta-label', 'Today so far'),
-          html('span', 'energy-live-meta-value', [
-            `${kwhFormat.format(live.today.kwh)} kWh`,
-            live.today.cost !== null && `${poundFormat.format(live.today.cost / 100)} use`
-          ].filter(Boolean).join(' · '))
+          html('span', 'energy-live-meta-value', `${kwhFormat.format(live.today.kwh)} kWh`)
         );
       }
       redraw();

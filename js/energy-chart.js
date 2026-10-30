@@ -1,11 +1,10 @@
 // Half-hourly electricity chart for the admin panel on the profile page (js/profile.js).
 // One UK day at a time, with buttons to step through the days that have readings.
-// A column per half hour in the trim colour; on two-rate tariffs a shaded band marks
-// the night-rate hours. Hovering a column (or moving with the arrow keys once the
-// chart has focus) shows its time, kWh and cost; the same numbers are in a table.
+// A column per half hour in the trim colour. Hovering a column (or moving with the arrow
+// keys once the chart has focus) shows its time and kWh; the same numbers are in a table.
 //
-// window.energyChart.show(container, days, costs): days as from the site API's
-// ?energy answer, [{ date: 'YYYY-MM-DD', readings: [[start, kWh, pence|null, night], …] }].
+// window.energyChart.show(container, days): days as from the site API's ?energy answer,
+// [{ date: 'YYYY-MM-DD', readings: [[start, kWh], …] }].
 (() => {
   const SVG = 'http://www.w3.org/2000/svg';
   // Drawing size; the SVG scales to the panel's width.
@@ -21,8 +20,6 @@
   const dayFormat = new Intl.DateTimeFormat(undefined, { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short' });
   const kwhFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 3 });
   const totalFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
-  const poundFormat = new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' });
-  const pence = value => (value < 100 ? `${totalFormat.format(value)}p` : poundFormat.format(value / 100));
 
   function svg(tag, attributes = {}) {
     const element = document.createElementNS(SVG, tag);
@@ -62,12 +59,10 @@
   // when the clocks go back in October), they're added together.
   function slotsFor(day) {
     const slots = Array.from({ length: SLOTS }, () => null);
-    for (const [start, kwh, cost, night] of day.readings) {
+    for (const [start, kwh] of day.readings) {
       const index = slotOf(start);
       const slot = slots[index];
-      slots[index] = slot
-        ? { ...slot, kwh: slot.kwh + kwh, cost: slot.cost === null || cost === null ? null : slot.cost + cost }
-        : { start, kwh, cost, night: Boolean(night) };
+      slots[index] = slot ? { ...slot, kwh: slot.kwh + kwh } : { start, kwh };
     }
     return slots;
   }
@@ -87,27 +82,6 @@
     const step = max > 0 ? niceStep(max) : 0.1;
     const top = Math.max(step, Math.ceil(max / step) * step);
     const y = value => PLOT.top + plotHeight - (value / top) * plotHeight;
-
-    // Night-rate hours: a faint band behind the columns, labelled once.
-    let bandStart = null;
-    slots.forEach((slot, index) => {
-      const night = Boolean(slot?.night);
-      if (night && bandStart === null) bandStart = index;
-      const endsHere = bandStart !== null && (!night || index === SLOTS - 1);
-      if (!endsHere) return;
-      const bandEnd = night ? index + 1 : index;
-      chart.append(svg('rect', {
-        class: 'energy-night-band',
-        x: PLOT.left + bandStart * slotWidth,
-        y: PLOT.top,
-        width: (bandEnd - bandStart) * slotWidth,
-        height: plotHeight
-      }));
-      const label = svg('text', { class: 'energy-night-label', x: PLOT.left + bandStart * slotWidth + 4, y: PLOT.top - 6 });
-      label.textContent = 'Night rate';
-      chart.append(label);
-      bandStart = null;
-    });
 
     // Gridlines and y-axis values.
     for (let value = 0; value <= top + step / 1000; value += step) {
@@ -162,10 +136,6 @@
       const end = slot.start + 30 * 60000;
       tooltip.replaceChildren(
         html('strong', 'energy-tip-value', `${kwhFormat.format(slot.kwh)} kWh`),
-        html('span', 'energy-tip-detail', [
-          slot.cost !== null && pence(slot.cost),
-          slot.night ? 'Night rate' : null
-        ].filter(Boolean).join(' · ')),
         html('span', 'energy-tip-time', `${timeFormat.format(slot.start)}–${timeFormat.format(end)}`)
       );
       tooltip.hidden = false;
@@ -194,10 +164,10 @@
     return chart;
   }
 
-  function drawTable(slots, costs) {
+  function drawTable(slots) {
     const table = html('table', 'energy-table');
     const head = html('tr');
-    for (const title of ['Time', 'kWh', ...(costs ? ['Cost'] : [])]) head.append(html('th', '', title));
+    for (const title of ['Time', 'kWh']) head.append(html('th', '', title));
     table.append(html('thead'));
     table.tHead.append(head);
     const body = html('tbody');
@@ -205,17 +175,16 @@
       if (!slot) continue;
       const row = html('tr');
       row.append(
-        html('td', '', `${timeFormat.format(slot.start)}${slot.night ? ' (night)' : ''}`),
+        html('td', '', timeFormat.format(slot.start)),
         html('td', '', kwhFormat.format(slot.kwh))
       );
-      if (costs) row.append(html('td', '', slot.cost === null ? '–' : pence(slot.cost)));
       body.append(row);
     }
     table.append(body);
     return table;
   }
 
-  function show(container, days, costs) {
+  function show(container, days) {
     if (!days?.length) {
       container.replaceChildren(html('p', 'energy-chart-empty', 'No half-hourly readings from Octopus in the last month.'));
       return;
@@ -240,19 +209,17 @@
       const day = days[index];
       const slots = slotsFor(day);
       const kwh = slots.reduce((sum, slot) => sum + (slot?.kwh || 0), 0);
-      const priced = slots.every(slot => !slot || slot.cost !== null);
-      const cost = slots.reduce((sum, slot) => sum + (slot?.cost || 0), 0);
       const [year, month, date] = day.date.split('-').map(Number);
       const name = dayFormat.format(new Date(Date.UTC(year, month - 1, date)));
       title.replaceChildren(
         html('strong', '', name),
         html('span', 'energy-chart-total',
-          `${totalFormat.format(kwh)} kWh${costs ? ` · ${priced ? '' : '~'}${poundFormat.format(cost / 100)} use` : ''}`)
+          `${totalFormat.format(kwh)} kWh`)
       );
       const chart = drawChart(slots, tooltip, frame);
       chart.setAttribute('aria-label', `Half-hourly electricity use on ${name}: ${totalFormat.format(kwh)} kWh in total. Use the arrow keys to read each half hour.`);
       frame.replaceChildren(chart, tooltip);
-      tableBox.replaceChildren(html('summary', '', 'Show as table'), drawTable(slots, costs));
+      tableBox.replaceChildren(html('summary', '', 'Show as table'), drawTable(slots));
       previous.disabled = index === 0;
       next.disabled = index === days.length - 1;
     }
