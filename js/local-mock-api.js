@@ -563,7 +563,7 @@
     // Small delay so the "Checking account…" / "Saving…" states still show.
     await new Promise(resolve => setTimeout(resolve, 150));
     const response = await handle(url, options);
-    if (new Headers(options.headers).get('x-debug') !== '1') return response;
+    if (url.searchParams.get('debug') !== '1') return response;
     // Fake debug details in the real API's shape, for the debug log's design only.
     const body = await response.clone().json().catch(() => null);
     if (!body || typeof body !== 'object' || Array.isArray(body)) return response;

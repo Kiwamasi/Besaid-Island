@@ -53,19 +53,21 @@
     const headers = {};
     if (body) headers['Content-Type'] = 'application/json';
     if (token) headers.Authorization = `Bearer ${token}`;
-    // The admin's Debug box: the server sends back the calls it made (admin only).
-    if (window.siteDebug?.on) headers['X-Debug'] = '1';
+    // The admin's Debug box: the server sends back the calls it made (admin only). It's
+    // in the address, as a custom header didn't reach the Netlify function.
+    const debug = Boolean(window.siteDebug?.on);
+    const address = `${apiUrl}${query}${debug ? `${query.includes('?') ? '&' : '?'}debug=1` : ''}`;
 
     const started = performance.now();
     // POSTs are named by their action ("POST debug"), the rest by their query.
     // debugSent: the call asked for the server's details, so their absence can be shown.
     const call = {
       at: Date.now(), method, query: query || (body?.action ? body.action : body?.game ? 'save game' : '/'),
-      status: 0, ms: 0, calls: null, jobLog: null, debugSent: Boolean(headers['X-Debug'])
+      status: 0, ms: 0, calls: null, jobLog: null, debugSent: debug
     };
     let response;
     try {
-      response = await fetch(`${apiUrl}${query}`, {
+      response = await fetch(address, {
         method,
         headers,
         body: body ? JSON.stringify(body) : undefined

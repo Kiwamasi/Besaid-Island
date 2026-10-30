@@ -74,7 +74,7 @@ const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://kiwamasi.github.io
 const scrypt = promisify(scryptCallback);
 const HEADERS = {
   'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Debug',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Content-Type': 'application/json; charset=utf-8',
   'Cache-Control': 'no-store'
 };
@@ -94,11 +94,12 @@ function getStore(options) {
   return recordedStore(openStore(options), options.name);
 }
 
-// Set once the request's session is known: the admin asking with "X-Debug: 1" (the
-// profile's Debug box) gets the calls this request made, as _debug on the answer.
+// Set once the request's session is known: the admin asking with ?debug=1 (or &debug=1;
+// the profile's Debug box) gets the calls this request made, as _debug on the answer.
+// It's in the address rather than a header, as a custom header didn't reach this function.
 let debugRequested = false;
 function wantsDebug(request, session) {
-  debugRequested = Boolean(session?.isAdmin) && request.headers.get('x-debug') === '1';
+  debugRequested = Boolean(session?.isAdmin) && new URL(request.url).searchParams.get('debug') === '1';
 }
 
 function respond(request, statusCode, body) {

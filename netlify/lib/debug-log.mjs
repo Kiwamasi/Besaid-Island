@@ -2,7 +2,7 @@
 // Octopus, Discord, Gemini and Netlify Blobs. It's only kept while the admin has Debug
 // ticked on their profile:
 // - netlify/functions/backlog.mjs sends the calls it made back with its answer, when the
-//   admin's page asks with an "X-Debug: 1" header
+//   admin's page asks with debug=1 in the address
 // - netlify/functions/wattnick.mjs (the scheduled job) saves each run's calls under
 //   DEBUG_LOG_KEY while debugUntil (in the energy-live blob) hasn't passed, and
 //   ?energy-live hands them to the page
