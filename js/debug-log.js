@@ -218,8 +218,9 @@
 
     // The job's calls come as a list each minute; they're grouped by run (calls within
     // a few seconds of each other) and each kept once.
-    // The job's saved list comes back whole each minute; Clear skips what came before it.
-    let clearedAt = 0;
+    // The job's saved list comes back whole each minute, including runs from before this
+    // page was opened; those are skipped, as is everything before Clear.
+    let clearedAt = Math.round(performance.timeOrigin);
     function addJobEntry(entry) {
       if (entry.at < clearedAt) return;
       const minute = Math.floor((entry.at - 30000) / 60000);
