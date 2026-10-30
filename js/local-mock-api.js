@@ -309,7 +309,7 @@
         return json(200, {
           configured: true,
           inviteUrl: 'https://discord.com/oauth2/authorize?client_id=000000000000000000&scope=bot&permissions=134217728',
-          settings: { enabled: true, nickBase: 'Kiwamari', resetName: 'Alex', userId: '123456789012345678', guildIds: ['111111111111111111'], intervalMinutes: 1, restoreOnPause: true },
+          settings: { enabled: true, nickBase: 'Kiwamari', appendToName: false, resetName: 'Alex', userId: '123456789012345678', guildIds: ['111111111111111111'], intervalMinutes: 1, restoreOnPause: true },
           status: { lastRunAt: now - 20000, lastNickAt: now - 20000, watts: 426, nicks: { '111111111111111111': 'Kiwamari 426W ⚡' }, lastError: null },
           guilds: [{ id: '111111111111111111', name: 'Besaid Island' }, { id: '222222222222222222', name: 'Gaming Friends' }],
           log: [
@@ -323,6 +323,20 @@
           guildError: null,
           limits: { maxNickBase: 22, intervals: [1, 2, 5, 10, 15, 30, 60] }
         });
+      }
+      // Made-up five-minute readings for the last week, in the shape of readSavedHistory.
+      if (url.searchParams.has('energy-history')) {
+        if (!user?.isAdmin) return json(403, { error: 'Only the admin can see energy use' });
+        const now = Date.now();
+        const newest = Math.floor((now - 600000) / 300000) * 300000;
+        const points = [];
+        for (let time = newest - 7 * 86400000; time <= newest; time += 300000) {
+          const hour = new Date(time).getHours();
+          const evening = hour >= 17 && hour < 23 ? 450 : 0;
+          const cooking = hour === 18 && time % 3600000 < 1200000 ? 1800 : 0;
+          points.push([time, Math.round(220 + evening + cooking + 60 * Math.sin(time / 1700000))]);
+        }
+        return json(200, { points, complete: true, updatedAt: now - 300000, error: null });
       }
       if (url.searchParams.has('energy-live')) {
         if (!user?.isAdmin) return json(403, { error: 'Only the admin can see energy use' });
@@ -344,7 +358,8 @@
           demand: watts(newest),
           points,
           today: { kwh, cost: Math.round(kwh * 24.5 * 100) / 100 },
-          updatedAt: now
+          updatedAt: now,
+          paused: localStorage.getItem('mock-energy-paused') === 'true'
         });
       }
       // Made-up numbers in the shape of readEnergySummary (netlify/lib/octopus.mjs).
@@ -407,9 +422,15 @@
     const session = sessionUser(options.headers);
     if (!session) return json(401, { error: 'Please sign in again' });
 
+    // Fake live readings Pause / Resume, for UI design only: remembered so the button shows it.
+    if (method === 'POST' && body?.action === 'energy-settings') {
+      localStorage.setItem('mock-energy-paused', String(Boolean(body.paused)));
+      return json(200, { paused: Boolean(body.paused) });
+    }
+
     // Fake Discord bot settings save, for UI design only: echoes what was sent.
     if (method === 'POST' && body?.action === 'wattnick-settings') {
-      return json(200, { settings: { enabled: true, nickBase: 'Kiwamari', resetName: 'Alex', userId: '123456789012345678', guildIds: ['111111111111111111'], intervalMinutes: 1, restoreOnPause: true, ...body.settings } });
+      return json(200, { settings: { enabled: true, nickBase: 'Kiwamari', appendToName: false, resetName: 'Alex', userId: '123456789012345678', guildIds: ['111111111111111111'], intervalMinutes: 1, restoreOnPause: true, ...body.settings } });
     }
     if (method === 'POST' && body?.action === 'clear-errors') {
       if (!session.isAdmin) return json(403, { error: 'Only the admin can clear errors' });

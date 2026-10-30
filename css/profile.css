@@ -457,6 +457,61 @@
   font-weight: 600;
 }
 
+/* The time span tabs over the line (15 min, 1 hour, All), with Pause / Resume on the right. */
+.energy-live-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin: 0.7rem 0 0.4rem;
+}
+
+.energy-live-tabs {
+  display: inline-flex;
+  gap: 3px;
+  border: 1px solid var(--site-line);
+  border-radius: 3px;
+  padding: 3px;
+}
+
+.energy-live-tab {
+  border: 0;
+  border-radius: 2px;
+  padding: 0.3rem 0.7rem;
+  background: transparent;
+  color: var(--site-muted);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.energy-live-tab:hover {
+  color: var(--site-ink);
+}
+
+.energy-live-tab.is-active {
+  background: rgba(241, 240, 235, 0.09);
+  color: var(--site-ink);
+}
+
+.energy-live-tab:focus-visible {
+  outline: 2px solid var(--site-accent);
+  outline-offset: 1px;
+}
+
+.energy-live-note,
+.energy-live-empty {
+  margin: 0.3rem 0 0;
+  color: var(--site-muted);
+  font-size: 0.75rem;
+}
+
+.energy-live-empty {
+  padding: 3rem 0;
+  text-align: center;
+}
+
 .energy-live-svg {
   cursor: crosshair;
 }
@@ -664,6 +719,28 @@
 
 .bot-form > .bot-check {
   margin-top: 0.7rem;
+}
+
+/* The name box with the Append checkbox beside it, level with the box. */
+.bot-name-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+
+.bot-name-row > .bot-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.bot-append {
+  flex: none;
+  padding-bottom: 0.55rem;
+}
+
+.bot-field input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .bot-save {

@@ -65,8 +65,9 @@ const iso = time => new Date(time).toISOString();
 // Netlify often starts a fresh copy of the function, which would forget it.
 //   AUTH_KEY  { token, expires, deviceId }: the GraphQL sign-in token (an hour long, so
 //             about one sign-in an hour) and the Home Mini's ID (looked up once)
-//   LIVE_KEY  { at, points, today, blockedUntil }: the last live answer, shared by every
-//             open tab, and when Octopus last said "too many requests"
+//   LIVE_KEY  { at, points, today, blockedUntil, paused }: the last live answer, shared
+//             by every open tab, when Octopus last said "too many requests", and whether
+//             the admin has paused readings (kept here, as the job reads this anyway)
 
 const GRAPHQL = 'https://api.octopus.energy/v1/graphql/';
 const AUTH_KEY = 'octopus-auth';
@@ -86,6 +87,22 @@ const LIVE_OVERLAP_MS = 3 * 60 * 1000;
 const TODAY_REFRESH_MS = 10 * 60 * 1000;
 // After Octopus says "too many requests", it isn't asked again for this long.
 const RATE_LIMIT_PAUSE_MS = 10 * 60 * 1000;
+// The live view's "All" tab: the Home Mini's five-minute readings for as far back as
+// Octopus keeps them (up to HISTORY_MAX_MS), kept under HISTORY_KEY as
+// { at, points, reachedFrom, complete, error }. The scheduled job updates it every
+// HISTORY_REFRESH_MS, in one request that asks for the readings since the newest kept
+// and, until Octopus has nothing older, another HISTORY_CHUNK_MS further back.
+const HISTORY_KEY = 'energy-history';
+const HISTORY_REFRESH_MS = 15 * 60 * 1000;
+// The scheduled job calls updateEnergyHistory on the quarter hours; this guards against
+// two runs close together asking twice, without skipping a run that starts a little
+// earlier in its minute than the last one did.
+const HISTORY_FRESH_MS = 10 * 60 * 1000;
+const HISTORY_CHUNK_MS = 2 * DAY_MS;
+const HISTORY_MAX_MS = 90 * DAY_MS;
+// Five-minute totals can still grow after they're first read, so the newest few are
+// asked for again.
+const HISTORY_OVERLAP_MS = 15 * 60 * 1000;
 
 const ukTime = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit' });
 
@@ -97,7 +114,15 @@ export class OctopusRateLimit extends Error {
   }
 }
 
-const RATE_LIMIT_PATTERN = /too many requests|rate.?limit|throttl/i;
+// Thrown while the admin has paused live readings from the profile's live panel. Its
+// message ends up in the Discord bot's log.
+export class LivePaused extends Error {
+  constructor() {
+    super('Electricity readings are paused on the profile, so the nickname is left as it is');
+  }
+}
+
+const RATE_LIMIT_PATTERN =/too many requests|rate.?limit|throttl/i;
 const AUTH_PATTERN = /jwt|token|signature|expired|authenticat|unauthori[sz]ed/i;
 
 async function graphqlPost(query, variables, token) {
@@ -410,7 +435,9 @@ export async function readEnergySummary(now = Date.now()) {
 // only the readings since the last answer (plus LIVE_OVERLAP_MS), with today's total
 // added to the same request when it's due. store is the site's Netlify Blobs store.
 export async function readLiveEnergy(store, now = Date.now()) {
-  const saved = (await store.get(LIVE_KEY, { type: 'json' })) || {};
+  const existing = await store.getWithMetadata(LIVE_KEY, { type: 'json' });
+  const saved = existing?.data || {};
+  if (saved.paused) throw new LivePaused();
   if (saved.blockedUntil > now) throw new OctopusRateLimit(saved.blockedUntil);
   if (saved.at && now - saved.at < LIVE_FRESH_MS) return liveAnswer(saved);
 
@@ -464,27 +491,124 @@ export async function readLiveEnergy(store, now = Date.now()) {
     today = { from: midnight, at: now, kwh: Math.round(wh) / 1000, cost: priced ? Math.round(cost * 100) / 100 : null };
   }
 
+  // Only over the version read, so a Pause pressed while Octopus was being asked isn't
+  // written over. The readings missed are asked for again next time.
   const next = { at: now, points, today };
-  await store.setJSON(LIVE_KEY, next);
+  await store.setJSON(LIVE_KEY, next, existing ? { onlyIfMatch: existing.etag } : { onlyIfNew: true });
   return liveAnswer(next);
+}
+
+// Pauses (or resumes) live readings: while paused, the scheduled job asks Octopus
+// nothing for the live view or its history, and the Discord bot leaves the nickname as
+// it is. The readings already saved stay. Answers with the new setting.
+export async function setLivePaused(store, paused) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const existing = await store.getWithMetadata(LIVE_KEY, { type: 'json' });
+    const next = { ...(existing?.data || {}), paused };
+    const result = existing
+      ? await store.setJSON(LIVE_KEY, next, { onlyIfMatch: existing.etag })
+      : await store.setJSON(LIVE_KEY, next, { onlyIfNew: true });
+    if (result.modified) return { paused };
+  }
+  throw new Error('Could not save the pause setting: try again');
 }
 
 // For the profile's live view: the scheduled job's last answer, without asking Octopus.
 // null if the job hasn't saved one yet. pausedUntil is set while Octopus is refusing
 // requests ("too many requests"), when the readings stop updating.
+// paused is true while the admin has paused readings. Today's total is left out once
+// it's from an earlier day, as it can be after a pause over midnight.
 export async function readSavedLive(store, now = Date.now()) {
   const saved = await store.get(LIVE_KEY, { type: 'json' });
-  if (!saved?.at) return null;
-  return { ...liveAnswer(saved), pausedUntil: saved.blockedUntil > now ? saved.blockedUntil : null };
+  if (!saved?.at && !saved?.paused) return null;
+  const { year, month, day } = londonDate(now);
+  const today = saved.today?.from === londonMidnight(year, month, day) ? saved.today : null;
+  return {
+    ...liveAnswer({ ...saved, today }),
+    paused: Boolean(saved.paused),
+    pausedUntil: saved.blockedUntil > now ? saved.blockedUntil : null
+  };
 }
 
-function liveAnswer({ at, points, today }) {
+// Called by the scheduled job every HISTORY_REFRESH_MS (on the quarter hours), after the
+// nickname, so it costs four requests an hour. Errors other than "too many requests" are saved for the page
+// to show, rather than thrown, and stop the search further back.
+export async function updateEnergyHistory(store, now = Date.now()) {
+  const live = (await store.get(LIVE_KEY, { type: 'json' })) || {};
+  if (live.paused || live.blockedUntil > now) return;
+  const saved = (await store.get(HISTORY_KEY, { type: 'json' })) || {};
+  if (saved.at && now - saved.at < HISTORY_FRESH_MS) return;
+
+  const limit = now - HISTORY_MAX_MS;
+  const kept = (saved.points || []).filter(([time]) => time >= limit);
+  const from = kept.length ? kept.at(-1)[0] - HISTORY_OVERLAP_MS : now - HISTORY_CHUNK_MS;
+  // The first run asks for the newest chunk only; later ones also step further back.
+  const reachedFrom = Math.max(limit, saved.reachedFrom ?? from);
+  const older = kept.length && !saved.complete && reachedFrom > limit
+    ? { from: Math.max(limit, reachedFrom - HISTORY_CHUNK_MS), to: reachedFrom }
+    : null;
+
+  const context = { store, auth: (await store.get(AUTH_KEY, { type: 'json' })) || {} };
+  const fields = '{ readAt consumptionDelta demand }';
+  let data;
+  try {
+    const deviceId = await homeMiniId(context);
+    // Octopus rejects a declared variable that isn't used, so the older range's
+    // variables are only there when it's asked for.
+    data = await graphql(context, `query history($deviceId: String!, $from: DateTime!, $now: DateTime!${older ? ', $olderFrom: DateTime!, $olderTo: DateTime!' : ''}) {
+      newer: smartMeterTelemetry(deviceId: $deviceId, grouping: FIVE_MINUTES, start: $from, end: $now) ${fields}
+      ${older ? `older: smartMeterTelemetry(deviceId: $deviceId, grouping: FIVE_MINUTES, start: $olderFrom, end: $olderTo) ${fields}` : ''}
+    }`, { deviceId, from: iso(from), now: iso(now), ...(older ? { olderFrom: iso(older.from), olderTo: iso(older.to) } : {}) });
+  } catch (error) {
+    if (error.rateLimited) {
+      await store.setJSON(LIVE_KEY, { ...live, blockedUntil: now + RATE_LIMIT_PAUSE_MS });
+      return;
+    }
+    // Perhaps Octopus won't go back that far: stop looking further back, and keep
+    // updating the newest readings.
+    await store.setJSON(HISTORY_KEY, {
+      ...saved, at: now, points: kept, reachedFrom, complete: Boolean(saved.complete || older), error: error.message
+    });
+    return;
+  }
+
+  const number = value => (value === null || value === undefined || value === '' ? null : Number(value));
+  // The average power over each five minutes, from the watt-hours used in them; the
+  // demand at that moment if Octopus gives no total.
+  const byTime = new Map(kept);
+  for (const reading of [...(data?.older || []), ...(data?.newer || [])]) {
+    const time = Date.parse(reading.readAt);
+    const wh = number(reading.consumptionDelta);
+    const watts = Number.isFinite(wh) ? wh * 12 : number(reading.demand);
+    if (Number.isFinite(time) && Number.isFinite(watts) && time >= limit) byTime.set(time, Math.round(watts));
+  }
+  const points = [...byTime].sort((first, second) => first[0] - second[0]);
+  await store.setJSON(HISTORY_KEY, {
+    at: now,
+    points,
+    reachedFrom: older ? older.from : reachedFrom,
+    // An empty answer for the older range means Octopus has nothing before it.
+    complete: Boolean(saved.complete || (older && !data?.older?.length) || (older && older.from <= limit)),
+    error: null
+  });
+}
+
+// For the live view's "All" tab, without asking Octopus: { points: [[time, watts], …]
+// every five minutes, oldest first, complete (true once Octopus has nothing older),
+// updatedAt, error }, or null before the scheduled job's first update.
+export async function readSavedHistory(store) {
+  const saved = await store.get(HISTORY_KEY, { type: 'json' });
+  if (!saved?.at) return null;
+  return { points: saved.points || [], complete: Boolean(saved.complete), updatedAt: saved.at, error: saved.error || null };
+}
+
+function liveAnswer({ at, points = [], today }) {
   const newest = points.at(-1);
   return {
     readAt: newest?.[0] ?? null,
     demand: newest?.[1] ?? null,
     points,
     today: today ? { kwh: today.kwh, cost: today.cost } : null,
-    updatedAt: at
+    updatedAt: at ?? null
   };
 }

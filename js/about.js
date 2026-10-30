@@ -430,18 +430,12 @@ function systemForGame(game) {
   return 'Misc';
 }
 
-async function checkApi() {
-  const tile = $('tileApi');
+// The API tile, timed from the ?whoami request loadConnection makes anyway, rather
+// than a request of its own.
+function showApiStatus(online, started) {
   const dot = el('span', 'status-dot');
-  const started = performance.now();
-  try {
-    await account.request('GET', null, '?session=1');
-    dot.dataset.state = 'success';
-    tile.replaceChildren(dot, `Online · ${Math.round(performance.now() - started)} ms`);
-  } catch {
-    dot.dataset.state = 'failure';
-    tile.replaceChildren(dot, 'Down');
-  }
+  dot.dataset.state = online ? 'success' : 'failure';
+  $('tileApi').replaceChildren(dot, online ? `Online · ${Math.round(performance.now() - started)} ms` : 'Down');
 }
 
 // Two-letter country code to its flag emoji ("GB" -> 🇬🇧).
@@ -451,14 +445,17 @@ function flag(countryCode) {
 }
 
 async function loadConnection() {
+  const started = performance.now();
   try {
     const info = await account.request('GET', null, '?whoami=1');
+    showApiStatus(true, started);
     $('connectionIp').textContent = info.ip || 'Unknown';
     $('copyIp').hidden = !info.ip;
     const place = [info.city, info.region, info.country].filter(Boolean).join(', ');
     $('connectionLocation').textContent = place ? `${flag(info.countryCode)} ${place}`.trim() : 'Unknown';
     $('connectionTimezone').textContent = info.timezone || 'Unknown';
   } catch (error) {
+    showApiStatus(false, started);
     $('connectionIp').textContent = `Unavailable: ${error.message}`;
   }
 }
@@ -512,7 +509,6 @@ for (const section of document.querySelectorAll('details[data-section]')) {
   });
 }
 
-checkApi();
 loadConnection();
 loadGithub();
 loadSiteStats();

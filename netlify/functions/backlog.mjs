@@ -1,7 +1,7 @@
 import { getStore } from '@netlify/blobs';
 import { createHmac, randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
-import { octopusConfigured, readEnergySummary, readSavedLive } from '../lib/octopus.mjs';
+import { octopusConfigured, readEnergySummary, readSavedHistory, readSavedLive, setLivePaused } from '../lib/octopus.mjs';
 import { discordConfigured, readWattnickPanel, readWattnickStatus, saveWattnickSettings } from '../lib/wattnick.mjs';
 
 const STORE_NAME = 'public-game-backlog';
@@ -741,7 +741,7 @@ export default async (request, context) => {
       }
 
       // ?energy-live: the admin's live use from the Octopus Home Mini, asked for every
-      // 30 seconds by the profile's live panel. Only the admin gets it. This never asks
+      // minute, just after the scheduled run, by the profile's live panel. Only the admin gets it. This never asks
       // Octopus: the scheduled job (netlify/functions/wattnick.mjs) does, once a minute,
       // and saves the answer in the stats store.
       if (params.has('energy-live')) {
@@ -758,6 +758,21 @@ export default async (request, context) => {
           });
         }
         return respond(request, 200, live);
+      }
+
+      // ?energy-history: the Home Mini's five-minute readings for as far back as Octopus
+      // keeps them, for the live panel's "All" tab. Saved by the scheduled job every 15
+      // minutes; this never asks Octopus either.
+      if (params.has('energy-history')) {
+        if (!session?.isAdmin) return respond(request, 403, { error: 'Only the admin can see energy use' });
+        if (!octopusConfigured()) return respond(request, 503, { error: "Octopus isn't set up yet" });
+        const history = await readSavedHistory(statsStore());
+        if (!history) {
+          return respond(request, 503, {
+            error: 'No Home Mini history yet: the scheduled Netlify job collects it every 15 minutes'
+          });
+        }
+        return respond(request, 200, history);
       }
 
       // ?wattnick: the Discord nickname bot's settings and status, for the admin panel.
@@ -830,6 +845,13 @@ export default async (request, context) => {
         await updateJson(accountsStore(), settingsKey(username), settings => ({ ...settings, color }));
       }
       return respond(request, 200, { profile: await readProfile(username) });
+    }
+
+    // Sent by the live panel's Pause / Resume button: { paused: true | false }.
+    if (request.method === 'POST' && body?.action === 'energy-settings') {
+      if (!session.isAdmin) return respond(request, 403, { error: 'Only the admin can pause energy readings' });
+      if (typeof body.paused !== 'boolean') return respond(request, 400, { error: 'Invalid pause setting' });
+      return respond(request, 200, await setLivePaused(statsStore(), body.paused));
     }
 
     // Sent by the admin panel's Discord bot section: any of enabled, nickBase, userId,

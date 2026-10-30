@@ -169,6 +169,8 @@ function showAdminPanel() {
     liveToday = null;
     window.energyLive.start(energyLiveBox, {
       load: () => account.request('GET', null, '?energy-live'),
+      loadHistory: () => account.request('GET', null, '?energy-history'),
+      setPaused: paused => account.request('POST', { action: 'energy-settings', paused }),
       onUpdate: live => {
         liveToday = live?.today || null;
         if (energySummary) showEnergyTiles();
@@ -256,10 +258,9 @@ function showEnergyTiles() {
   }));
 }
 
-energyRefresh.addEventListener('click', () => {
-  loadEnergy(true);
-  window.energyLive.refresh();
-});
+// Only the summary: the live view already has the newest reading the scheduled job
+// saved, and picks up the next one by itself.
+energyRefresh.addEventListener('click', () => loadEnergy(true));
 
 document.addEventListener('site-account-change', () => {
   if (profile) showColorControls();

@@ -27,9 +27,14 @@
     return label;
   }
 
-  // A run happens at the top of every minute; the status is asked for this long after.
+  // A run happens at the top of every minute; the status is asked for this long after,
+  // the same moment js/energy-live.js asks for the reading, so both show the same run.
+  // Netlify sometimes starts the run late: if the status is still the last run's, it's
+  // asked again every RECHECK_MS, up to MAX_RECHECKS times.
   const RUN_SETTLE_MS = 6000;
   const MINUTE_MS = 60000;
+  const RECHECK_MS = 5000;
+  const MAX_RECHECKS = 3;
 
   let version = 0;
   // Stops the previous panel's countdown and polling when the panel is shown again.
@@ -112,8 +117,10 @@
           status?.lastRunAt && `last run ${timeFormat.format(status.lastRunAt)}`
         ].filter(Boolean).join(' · ')
         : !settings.restoreOnPause ? 'The last reading stays in your nickname while paused'
-          : settings.resetName || settings.nickBase ? `Your nickname is "${settings.resetName || settings.nickBase}" while paused`
-            : 'Your nickname is removed while paused';
+          : settings.resetName ? `Your nickname is "${settings.resetName}" while paused`
+            : settings.appendToName ? 'The reading is taken off your nickname while paused'
+              : settings.nickBase ? `Your nickname is "${settings.nickBase}" while paused`
+                : 'Your nickname is removed while paused';
       toggle.textContent = settings.enabled ? 'Pause' : 'Resume';
       error.textContent = status?.lastError ? `${timeFormat.format(status.lastError.at)}: ${status.lastError.message}` : '';
     }
@@ -168,13 +175,26 @@
     restore.checked = settings.restoreOnPause;
     restoreLabel.append(restore, html('span', '', 'Put my name back when paused'));
 
+    // Append: the reading goes on the end of whatever your name is in each server, so
+    // the name box isn't used.
+    const appendLabel = html('label', 'bot-check bot-append');
+    const append = html('input');
+    append.type = 'checkbox';
+    append.checked = Boolean(settings.appendToName);
+    appendLabel.append(append, html('span', '', 'Append'));
+    appendLabel.title = 'Add the reading to the end of your current name in each server';
+    const nameRow = html('div', 'bot-name-row');
+    nameRow.append(field('Name before the reading', nickBase), appendLabel);
+
     const preview = html('p', 'bot-field-hint');
     const updatePreview = () => {
-      const base = nickBase.value.replace(/\s+/g, ' ').trim();
+      nickBase.disabled = append.checked;
+      const base = append.checked ? 'Your current name' : nickBase.value.replace(/\s+/g, ' ').trim();
       const reading = status?.watts !== undefined && status?.watts !== null ? power(status.watts) : power(1240);
-      preview.textContent = `Your nickname will look like "${base ? `${base} ${reading}` : reading}".`;
+      preview.textContent = `Your nickname will look like "${base ? `${base} ${reading}` : reading}"${append.checked ? ' in each server' : ''}.`;
     };
     nickBase.addEventListener('input', updatePreview);
+    append.addEventListener('change', updatePreview);
     updatePreview();
 
     const save = html('button', 'button-primary', 'Save');
@@ -185,9 +205,9 @@
     saveRow.append(save, saveNote);
 
     form.append(
-      field('Name before the reading', nickBase),
+      nameRow,
       preview,
-      field('Name when paused', resetName, 'Set as soon as you press Pause. Leave empty to use the name before the reading.'),
+      field('Name when paused', resetName, 'Set as soon as you press Pause. Leave empty to use the name before the reading (with Append, your current name without the reading).'),
       field('Your Discord user ID', userId, 'Discord → User Settings → Advanced → Developer Mode, then right-click your name → Copy User ID.'),
       servers,
       field('Update', interval),
@@ -203,7 +223,10 @@
         settings = result.settings;
         saveNote.textContent = settings.enabled
           ? 'Saved. Applied within a minute.'
-          : settings.restoreOnPause && (settings.resetName || settings.nickBase) ? `Saved. Nickname set to "${settings.resetName || settings.nickBase}".` : 'Saved.';
+          : !settings.restoreOnPause ? 'Saved.'
+            : settings.resetName ? `Saved. Nickname set to "${settings.resetName}".`
+              : settings.appendToName ? 'Saved. Reading taken off your nickname.'
+                : settings.nickBase ? `Saved. Nickname set to "${settings.nickBase}".` : 'Saved.';
         showStatus();
         poll();
       } catch (failure) {
@@ -217,6 +240,7 @@
       event.preventDefault();
       send({
         nickBase: nickBase.value,
+        appendToName: append.checked,
         userId: userId.value,
         guildIds: serverBoxes.filter(box => box.checked).map(box => box.value),
         intervalMinutes: Number(interval.value),
@@ -230,6 +254,7 @@
     let timer = null;
     let clock = null;
     let polling = false;
+    let rechecks = 0;
     const nextRun = () => Math.ceil(Date.now() / MINUTE_MS) * MINUTE_MS;
 
     function showCountdown() {
@@ -246,9 +271,15 @@
       if (!container.isConnected || document.hidden) return;
       polling = true;
       showCountdown();
+      let late = false;
       try {
         const fresh = await request('GET', null, '?wattnick=status');
         if (fresh.configured) {
+          // Still the run already shown, and the next one is due. Not when it's further
+          // behind than that (the job has stopped), when asking soon wouldn't help.
+          const age = Date.now() - status?.lastRunAt;
+          late = Boolean(status?.lastRunAt) && fresh.status?.lastRunAt === status.lastRunAt
+            && age > MINUTE_MS && age < 2 * MINUTE_MS;
           ({ settings, status, log } = fresh);
           showStatus();
           showLog();
@@ -258,13 +289,30 @@
       }
       polling = false;
       showCountdown();
+      if (late && rechecks < MAX_RECHECKS) {
+        rechecks++;
+        schedule(Date.now() + RECHECK_MS);
+        return;
+      }
+      rechecks = 0;
       // A few seconds after the next run, so its result is there to show.
-      timer = setTimeout(poll, nextRun() + RUN_SETTLE_MS - Date.now());
+      schedule(nextRun() + RUN_SETTLE_MS);
     }
 
+    let dueAt = null;
+    function schedule(at) {
+      dueAt = at;
+      clearTimeout(timer);
+      timer = setTimeout(poll, at - Date.now());
+    }
+
+    // Back on the tab: ask now only if a run has happened while it was hidden.
     function onVisibility() {
       if (document.hidden) {
         clearTimeout(timer);
+        showCountdown();
+      } else if (dueAt && Date.now() < dueAt) {
+        schedule(dueAt);
         showCountdown();
       } else {
         poll();
@@ -281,7 +329,7 @@
       if (!container.isConnected) stopPolling();
       else showCountdown();
     }, 1000);
-    timer = setTimeout(poll, nextRun() + RUN_SETTLE_MS - Date.now());
+    schedule(nextRun() + RUN_SETTLE_MS);
 
     showStatus();
     showLog();

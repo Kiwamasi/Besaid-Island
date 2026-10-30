@@ -5,8 +5,9 @@
 // The bot is a Discord application invited to each server with Manage Nicknames. It
 // never stays connected to Discord (so it shows as offline there): changing a nickname
 // is one request to Discord's API with the bot's token, made by the scheduled function
-// netlify/functions/wattnick.mjs once a minute. That run also reads the Home Mini for
-// the profile's live view (readLiveEnergy), so Octopus is asked once a minute in all.
+// netlify/functions/wattnick.mjs once a minute. That run reads the Home Mini for the
+// profile's live view first (readLiveEnergy), whether or not the bot is on, and the bot
+// uses the same reading, so Octopus is asked once a minute in all.
 //
 // Netlify environment variables, never in the repo or the pages:
 //   DISCORD_BOT_TOKEN   the bot's token (Discord Developer Portal → the app → Bot)
@@ -14,16 +15,18 @@
 //                       it's read from the token, whose first part is the bot's ID.
 //
 // Kept in the site-stats store, set from the profile's admin panel (only the admin's):
-//   SETTINGS_KEY  { enabled, nickBase, resetName, userId, guildIds, intervalMinutes,
-//                   restoreOnPause }. resetName is the nickname set when paused (empty:
-//                   nickBase, or no nickname if that's empty too).
+//   SETTINGS_KEY  { enabled, nickBase, appendToName, resetName, userId, guildIds,
+//                   intervalMinutes, restoreOnPause }. appendToName puts the reading on
+//                   the end of the user's current name in each server instead of after
+//                   nickBase (asking Discord for that name each update, one request per
+//                   server). resetName is the nickname set when paused (empty: nickBase,
+//                   or with appendToName the current name without the reading, or no
+//                   nickname if that's empty too).
 //   STATUS_KEY    { lastRunAt, watts, readAt, nicks: { guildId: nickname }, lastNickAt,
 //                   restored, lastError: { at, message } | null }
 //   LOG_KEY       [{ at, message }], newest first, at most MAX_LOG: settings changes,
 //                 nicknames set and errors (each error once, not every minute), for the
 //                 panel's log console
-
-import { octopusConfigured, readLiveEnergy } from './octopus.mjs';
 
 const DISCORD_API = 'https://discord.com/api/v10';
 const REQUEST_TIMEOUT_MS = 10000;
@@ -42,7 +45,7 @@ const INTERVALS = [1, 2, 5, 10, 15, 30, 60];
 // stopped reporting, and the nickname is left as it is until it's back.
 const STALE_MS = 10 * 60 * 1000;
 const DEFAULT_SETTINGS = {
-  enabled: false, nickBase: '', resetName: '', userId: '', guildIds: [], intervalMinutes: 1, restoreOnPause: true
+  enabled: false, nickBase: '', appendToName: false, resetName: '', userId: '', guildIds: [], intervalMinutes: 1, restoreOnPause: true
 };
 const SNOWFLAKE = /^\d{17,20}$/;
 
@@ -91,6 +94,45 @@ function nicknameFor(base, watts) {
   return base ? `${base.slice(0, MAX_NICK_BASE).trim()} ${formatWatts(watts)}` : formatWatts(watts);
 }
 
+// A reading the bot added to the end of a name, like " 450W ⚡" or " 1.24kW ⚡".
+const READING_SUFFIX = /\s*\d+(?:\.\d+)?k?W ⚡$/u;
+
+// For appendToName: the user's name in that server as Discord has it now (their
+// nickname there, else their display name), without any reading the bot added.
+// display is the name Discord shows with no nickname, so the paused name can be "none".
+async function currentName(guildId, userId) {
+  const member = await discord('GET', `/guilds/${guildId}/members/${userId}`);
+  const display = member.user?.global_name || member.user?.username || '';
+  const base = (member.nick || display).replace(READING_SUFFIX, '').trim();
+  return { nick: member.nick ?? null, base, display };
+}
+
+// What to set in each server: nickFor(guildId) resolves to { nick, current }, where
+// current is the nickname Discord has now if it was asked (appendToName), so a change
+// made in Discord itself is noticed; otherwise the last one the bot set is compared.
+function readingNicks(settings, watts) {
+  if (!settings.appendToName) return async () => ({ nick: nicknameFor(settings.nickBase, watts) });
+  return async guildId => {
+    const { nick, base } = await currentName(guildId, settings.userId);
+    return { nick: nicknameFor(base, watts), current: nick };
+  };
+}
+
+function pausedNicks(settings) {
+  if (settings.resetName || !settings.appendToName) return async () => ({ nick: pausedNick(settings) });
+  return async guildId => {
+    const { nick, base, display } = await currentName(guildId, settings.userId);
+    // Back to no nickname when what's left is just their display name.
+    return { nick: base && base !== display ? base : null, current: nick };
+  };
+}
+
+// "Set to "X" in 2 servers", naming each different nickname once.
+function describeNicks(nicks) {
+  const names = [...new Set(nicks)].map(nick => (nick ? `"${nick}"` : 'no nickname'));
+  return `${names.join(', ')} in ${servers(nicks.length)}`;
+}
+
 async function readSettings(store) {
   return { ...DEFAULT_SETTINGS, ...((await store.get(SETTINGS_KEY, { type: 'json' })) || {}) };
 }
@@ -105,6 +147,10 @@ function cleanSettings(input, current) {
   if (input.restoreOnPause !== undefined) {
     if (typeof input.restoreOnPause !== 'boolean') throw new Error('Invalid restore setting');
     settings.restoreOnPause = input.restoreOnPause;
+  }
+  if (input.appendToName !== undefined) {
+    if (typeof input.appendToName !== 'boolean') throw new Error('Invalid append setting');
+    settings.appendToName = input.appendToName;
   }
   if (input.nickBase !== undefined) {
     if (typeof input.nickBase !== 'string') throw new Error('Invalid name');
@@ -140,19 +186,24 @@ function cleanSettings(input, current) {
   return settings;
 }
 
-// Sets the nickname (null removes it) in every chosen server where it differs from
-// the last one set. Records each success in next.nicks; throws the failures together.
-// Returns how many servers it was changed in.
-async function setNicknames(settings, nick, status, next) {
+// Sets the nickname nickFor gives (null removes it) in every chosen server where it
+// differs from what's there. Records each success in next.nicks; throws the failures
+// together. Returns the nicknames it changed, one for each server.
+async function setNicknames(settings, nickFor, status, next) {
   next.nicks = { ...(status.nicks || {}) };
   const failures = [];
-  let changed = 0;
+  const changed = [];
   for (const guildId of settings.guildIds) {
-    if (next.nicks[guildId] === nick) continue;
     try {
+      const { nick, current } = await nickFor(guildId);
+      const there = current !== undefined ? current : next.nicks[guildId];
+      if (there === nick) {
+        next.nicks[guildId] = nick;
+        continue;
+      }
       await discord('PATCH', `/guilds/${guildId}/members/${settings.userId}`, { nick });
       next.nicks[guildId] = nick;
-      changed++;
+      changed.push(nick);
     } catch (error) {
       failures.push(`${guildId}: ${error.message}`);
     }
@@ -186,27 +237,15 @@ function pausedNick(settings) {
 // Puts the paused name in place where it isn't already, adding a line to log if it
 // changed anything. Throws Discord's refusals, like setNicknames.
 async function putNameBack(settings, status, next, log) {
-  const nick = pausedNick(settings);
-  const changed = await setNicknames(settings, nick, status, next);
-  if (changed) {
-    log.push(nick ? `Paused: name set to "${nick}" in ${servers(changed)}` : `Paused: nickname removed in ${servers(changed)}`);
-  }
+  const changed = await setNicknames(settings, pausedNicks(settings), status, next);
+  if (changed.length) log.push(`Paused: name set to ${describeNicks(changed)}`);
 }
 
-// Once a minute, from netlify/functions/wattnick.mjs. store is the site-stats store.
-export async function runWattnick(store, now = Date.now()) {
-  // The Home Mini reading, saved for the profile's live view whether or not the bot is on.
-  let live = null;
-  let readError = null;
-  if (octopusConfigured()) {
-    try {
-      live = await readLiveEnergy(store, now);
-    } catch (error) {
-      readError = error.message;
-    }
-  } else {
-    readError = "Octopus isn't set up on Netlify";
-  }
+// Once a minute, from netlify/functions/wattnick.mjs, after it has read the Home Mini
+// for the live view. live is that reading (readLiveEnergy's answer, or null with
+// readError saying why); the bot only uses it, so pausing the bot never stops the
+// readings. store is the site-stats store.
+export async function runWattnick(store, live, readError, now = Date.now()) {
   if (!discordConfigured()) return;
 
   const settings = await readSettings(store);
@@ -229,9 +268,8 @@ export async function runWattnick(store, now = Date.now()) {
         if (now - live.readAt > STALE_MS) throw new Error('The newest Home Mini reading is over 10 minutes old, so the nickname was left as it is');
         next.watts = live.demand;
         next.readAt = live.readAt;
-        const nick = nicknameFor(settings.nickBase, live.demand);
-        const changed = await setNicknames(settings, nick, status, next);
-        if (changed) log.push(`Nickname set to "${nick}" in ${servers(changed)}`);
+        const changed = await setNicknames(settings, readingNicks(settings, live.demand), status, next);
+        if (changed.length) log.push(`Nickname set to ${describeNicks(changed)}`);
         next.lastNickAt = now;
       }
     }
@@ -286,6 +324,9 @@ export async function readWattnickPanel(store) {
 function describeChanges(before, after) {
   const changes = [];
   if (after.enabled !== before.enabled) changes.push(after.enabled ? 'Bot resumed' : 'Bot paused');
+  if (after.appendToName !== before.appendToName) {
+    changes.push(after.appendToName ? 'Reading added to the end of your current name' : 'Reading added to the name set here');
+  }
   if (after.nickBase !== before.nickBase) changes.push(after.nickBase ? `Name changed to "${after.nickBase}"` : 'Name cleared');
   if (after.resetName !== before.resetName) {
     changes.push(after.resetName ? `Name when paused changed to "${after.resetName}"` : 'Name when paused cleared');
