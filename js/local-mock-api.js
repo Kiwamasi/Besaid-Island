@@ -324,19 +324,30 @@
           limits: { maxNickBase: 22, intervals: [1, 2, 5, 10, 15, 30, 60] }
         });
       }
-      // Made-up five-minute readings for the last week, in the shape of readSavedHistory.
+      // Made-up five-minute readings for the last week, a day at a time, in the shape of
+      // readSavedHistory (local days, which is close enough for the UI).
       if (url.searchParams.has('energy-history')) {
         if (!user?.isAdmin) return json(403, { error: 'Only the admin can see energy use' });
         const now = Date.now();
+        const dateOf = time => {
+          const day = new Date(time);
+          return `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
+        };
+        const days = [];
+        for (let back = 7; back >= 0; back--) days.push(dateOf(now - back * 86400000));
+        const date = days.includes(url.searchParams.get('energy-history')) ? url.searchParams.get('energy-history') : days.at(-1);
+        const [year, month, day] = date.split('-').map(Number);
+        const from = new Date(year, month - 1, day).getTime();
+        const to = new Date(year, month - 1, day + 1).getTime();
         const newest = Math.floor((now - 600000) / 300000) * 300000;
         const points = [];
-        for (let time = newest - 7 * 86400000; time <= newest; time += 300000) {
+        for (let time = from; time < to && time <= newest; time += 300000) {
           const hour = new Date(time).getHours();
           const evening = hour >= 17 && hour < 23 ? 450 : 0;
           const cooking = hour === 18 && time % 3600000 < 1200000 ? 1800 : 0;
           points.push([time, Math.round(220 + evening + cooking + 60 * Math.sin(time / 1700000))]);
         }
-        return json(200, { points, complete: true, updatedAt: now - 300000, error: null });
+        return json(200, { days, date, from, to, points, complete: false, updatedAt: now - 120000, nextAt: now + 180000, error: null });
       }
       if (url.searchParams.has('energy-live')) {
         if (!user?.isAdmin) return json(403, { error: 'Only the admin can see energy use' });

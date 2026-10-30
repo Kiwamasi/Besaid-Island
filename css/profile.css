@@ -500,6 +500,11 @@
   outline-offset: 1px;
 }
 
+/* "All": the day shown, with previous / next day either side. */
+.energy-live-days {
+  margin: 0.3rem 0 0.2rem;
+}
+
 .energy-live-note,
 .energy-live-empty {
   margin: 0.3rem 0 0;

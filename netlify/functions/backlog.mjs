@@ -760,16 +760,16 @@ export default async (request, context) => {
         return respond(request, 200, live);
       }
 
-      // ?energy-history: the Home Mini's five-minute readings for as far back as Octopus
-      // keeps them, for the live panel's "All" tab. Saved by the scheduled job every 15
-      // minutes; this never asks Octopus either.
+      // ?energy-history=YYYY-MM-DD: that UK day's five-minute Home Mini readings, and the
+      // days there are, for the live panel's "All" tab (any other value: the newest day).
+      // Collected by the scheduled job; this never asks Octopus either.
       if (params.has('energy-history')) {
         if (!session?.isAdmin) return respond(request, 403, { error: 'Only the admin can see energy use' });
         if (!octopusConfigured()) return respond(request, 503, { error: "Octopus isn't set up yet" });
-        const history = await readSavedHistory(statsStore());
+        const history = await readSavedHistory(statsStore(), params.get('energy-history'));
         if (!history) {
           return respond(request, 503, {
-            error: 'No Home Mini history yet: the scheduled Netlify job collects it every 15 minutes'
+            error: "Collecting the Home Mini's history from Octopus: it should be here within a couple of minutes"
           });
         }
         return respond(request, 200, history);

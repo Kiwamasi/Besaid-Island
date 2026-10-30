@@ -2,8 +2,8 @@
 // separate jobs, in order:
 //   1. reads the Octopus Home Mini for the profile's live view (readLiveEnergy), always
 //   2. updates the Discord nickname bot with that reading, if it's on (netlify/lib/wattnick.mjs)
-//   3. every 15 minutes, the live view's longer history (updateEnergyHistory), last so
-//      it never holds up the nickname
+//   3. when due, the live view's longer history (updateEnergyHistory), last so it
+//      never holds up the nickname
 import { getStore } from '@netlify/blobs';
 import { octopusConfigured, readLiveEnergy, updateEnergyHistory } from '../lib/octopus.mjs';
 import { runWattnick } from '../lib/wattnick.mjs';
@@ -32,9 +32,11 @@ export default async () => {
     console.error('wattnick run failed', error);
   }
 
-  // Only on the quarter hours, so the other runs don't read the store just to find
-  // the history isn't due.
-  if (!octopusConfigured() || new Date(now).getUTCMinutes() % 15 !== 0) return;
+  // Only when readLiveEnergy says it's due (straight away the first time, then every 5
+  // minutes while fetching older history and every 15 once it's all in), so the other
+  // runs don't read the store just to find it isn't. Not while readings are paused or
+  // Octopus is refusing requests, when there's no live answer.
+  if (!live?.historyDue) return;
   try {
     await updateEnergyHistory(store, now);
   } catch (error) {

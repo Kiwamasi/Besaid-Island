@@ -89,17 +89,20 @@ const TODAY_REFRESH_MS = 10 * 60 * 1000;
 const RATE_LIMIT_PAUSE_MS = 10 * 60 * 1000;
 // The live view's "All" tab: the Home Mini's five-minute readings for as far back as
 // Octopus keeps them (up to HISTORY_MAX_MS), kept under HISTORY_KEY as
-// { at, points, reachedFrom, complete, error }. The scheduled job updates it every
-// HISTORY_REFRESH_MS, in one request that asks for the readings since the newest kept
-// and, until Octopus has nothing older, another HISTORY_CHUNK_MS further back.
+// { at, nextAt, points, reachedFrom, chunkMs, complete, error }. Each update is one
+// request: the readings since the newest kept and, until Octopus has nothing older,
+// chunkMs further back. The first update is on the scheduled job's first run; then every
+// HISTORY_BACKFILL_MS while there's older history to fetch, and every HISTORY_REFRESH_MS
+// once it's all in. When the next one is due is kept in LIVE_KEY (historyDueAt), which
+// the job reads every minute anyway, so the runs in between cost nothing.
 const HISTORY_KEY = 'energy-history';
 const HISTORY_REFRESH_MS = 15 * 60 * 1000;
-// The scheduled job calls updateEnergyHistory on the quarter hours; this guards against
-// two runs close together asking twice, without skipping a run that starts a little
-// earlier in its minute than the last one did.
-const HISTORY_FRESH_MS = 10 * 60 * 1000;
-const HISTORY_CHUNK_MS = 2 * DAY_MS;
-const HISTORY_MAX_MS = 90 * DAY_MS;
+const HISTORY_BACKFILL_MS = 5 * 60 * 1000;
+// How far back each update reaches to begin with. If Octopus refuses that (perhaps too
+// long a range), it's halved, down to HISTORY_MIN_CHUNK_MS, before the search back stops.
+const HISTORY_CHUNK_MS = 3 * DAY_MS;
+const HISTORY_MIN_CHUNK_MS = 6 * 60 * 60 * 1000;
+const HISTORY_MAX_MS = 365 * DAY_MS;
 // Five-minute totals can still grow after they're first read, so the newest few are
 // asked for again.
 const HISTORY_OVERLAP_MS = 15 * 60 * 1000;
@@ -439,7 +442,7 @@ export async function readLiveEnergy(store, now = Date.now()) {
   const saved = existing?.data || {};
   if (saved.paused) throw new LivePaused();
   if (saved.blockedUntil > now) throw new OctopusRateLimit(saved.blockedUntil);
-  if (saved.at && now - saved.at < LIVE_FRESH_MS) return liveAnswer(saved);
+  if (saved.at && now - saved.at < LIVE_FRESH_MS) return { ...liveAnswer(saved), historyDue: false };
 
   const context = { store, auth: (await store.get(AUTH_KEY, { type: 'json' })) || {} };
   const windowStart = now - LIVE_WINDOW_MS;
@@ -493,24 +496,32 @@ export async function readLiveEnergy(store, now = Date.now()) {
 
   // Only over the version read, so a Pause pressed while Octopus was being asked isn't
   // written over. The readings missed are asked for again next time.
-  const next = { at: now, points, today };
+  const next = { at: now, points, today, historyDueAt: saved.historyDueAt };
   await store.setJSON(LIVE_KEY, next, existing ? { onlyIfMatch: existing.etag } : { onlyIfNew: true });
-  return liveAnswer(next);
+  // historyDue tells the scheduled job to call updateEnergyHistory after the nickname.
+  return { ...liveAnswer(next), historyDue: !(saved.historyDueAt > now) };
+}
+
+// Changes some of LIVE_KEY's fields, without writing over a change made at the same
+// moment (the scheduled job and the Pause button both write it).
+async function updateLive(store, fields) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const existing = await store.getWithMetadata(LIVE_KEY, { type: 'json' });
+    const next = { ...(existing?.data || {}), ...fields };
+    const result = existing
+      ? await store.setJSON(LIVE_KEY, next, { onlyIfMatch: existing.etag })
+      : await store.setJSON(LIVE_KEY, next, { onlyIfNew: true });
+    if (result.modified) return;
+  }
+  throw new Error('Could not save the live settings: try again');
 }
 
 // Pauses (or resumes) live readings: while paused, the scheduled job asks Octopus
 // nothing for the live view or its history, and the Discord bot leaves the nickname as
 // it is. The readings already saved stay. Answers with the new setting.
 export async function setLivePaused(store, paused) {
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const existing = await store.getWithMetadata(LIVE_KEY, { type: 'json' });
-    const next = { ...(existing?.data || {}), paused };
-    const result = existing
-      ? await store.setJSON(LIVE_KEY, next, { onlyIfMatch: existing.etag })
-      : await store.setJSON(LIVE_KEY, next, { onlyIfNew: true });
-    if (result.modified) return { paused };
-  }
-  throw new Error('Could not save the pause setting: try again');
+  await updateLive(store, { paused });
+  return { paused };
 }
 
 // For the profile's live view: the scheduled job's last answer, without asking Octopus.
@@ -530,27 +541,25 @@ export async function readSavedLive(store, now = Date.now()) {
   };
 }
 
-// Called by the scheduled job every HISTORY_REFRESH_MS (on the quarter hours), after the
-// nickname, so it costs four requests an hour. Errors other than "too many requests" are saved for the page
-// to show, rather than thrown, and stop the search further back.
+// Called by the scheduled job after the nickname, when readLiveEnergy says it's due
+// (historyDue). Errors other than "too many requests" are saved for the page to show,
+// rather than thrown.
 export async function updateEnergyHistory(store, now = Date.now()) {
-  const live = (await store.get(LIVE_KEY, { type: 'json' })) || {};
-  if (live.paused || live.blockedUntil > now) return;
   const saved = (await store.get(HISTORY_KEY, { type: 'json' })) || {};
-  if (saved.at && now - saved.at < HISTORY_FRESH_MS) return;
-
   const limit = now - HISTORY_MAX_MS;
   const kept = (saved.points || []).filter(([time]) => time >= limit);
-  const from = kept.length ? kept.at(-1)[0] - HISTORY_OVERLAP_MS : now - HISTORY_CHUNK_MS;
-  // The first run asks for the newest chunk only; later ones also step further back.
+  const chunk = saved.chunkMs || HISTORY_CHUNK_MS;
+  const from = kept.length ? kept.at(-1)[0] - HISTORY_OVERLAP_MS : now - chunk;
+  // The first update asks for the newest chunk only; later ones also step further back.
   const reachedFrom = Math.max(limit, saved.reachedFrom ?? from);
   const older = kept.length && !saved.complete && reachedFrom > limit
-    ? { from: Math.max(limit, reachedFrom - HISTORY_CHUNK_MS), to: reachedFrom }
+    ? { from: Math.max(limit, reachedFrom - chunk), to: reachedFrom }
     : null;
 
   const context = { store, auth: (await store.get(AUTH_KEY, { type: 'json' })) || {} };
   const fields = '{ readAt consumptionDelta demand }';
   let data;
+  let failure = null;
   try {
     const deviceId = await homeMiniId(context);
     // Octopus rejects a declared variable that isn't used, so the older range's
@@ -561,45 +570,83 @@ export async function updateEnergyHistory(store, now = Date.now()) {
     }`, { deviceId, from: iso(from), now: iso(now), ...(older ? { olderFrom: iso(older.from), olderTo: iso(older.to) } : {}) });
   } catch (error) {
     if (error.rateLimited) {
-      await store.setJSON(LIVE_KEY, { ...live, blockedUntil: now + RATE_LIMIT_PAUSE_MS });
+      const until = now + RATE_LIMIT_PAUSE_MS;
+      await updateLive(store, { blockedUntil: until, historyDueAt: until });
       return;
     }
-    // Perhaps Octopus won't go back that far: stop looking further back, and keep
-    // updating the newest readings.
-    await store.setJSON(HISTORY_KEY, {
-      ...saved, at: now, points: kept, reachedFrom, complete: Boolean(saved.complete || older), error: error.message
-    });
-    return;
+    failure = error;
   }
 
-  const number = value => (value === null || value === undefined || value === '' ? null : Number(value));
-  // The average power over each five minutes, from the watt-hours used in them; the
-  // demand at that moment if Octopus gives no total.
-  const byTime = new Map(kept);
-  for (const reading of [...(data?.older || []), ...(data?.newer || [])]) {
-    const time = Date.parse(reading.readAt);
-    const wh = number(reading.consumptionDelta);
-    const watts = Number.isFinite(wh) ? wh * 12 : number(reading.demand);
-    if (Number.isFinite(time) && Number.isFinite(watts) && time >= limit) byTime.set(time, Math.round(watts));
+  let next;
+  if (failure) {
+    // Perhaps too long a range: ask for half as much next time. Once that's as small
+    // as it goes, stop looking further back and keep updating the newest readings.
+    const smaller = chunk / 2 >= HISTORY_MIN_CHUNK_MS;
+    next = {
+      points: kept,
+      reachedFrom: saved.reachedFrom ?? null,
+      chunkMs: smaller ? chunk / 2 : chunk,
+      complete: Boolean(saved.complete || (older && !smaller)),
+      error: failure.message
+    };
+  } else {
+    const number = value => (value === null || value === undefined || value === '' ? null : Number(value));
+    // The average power over each five minutes, from the watt-hours used in them; the
+    // demand at that moment if Octopus gives no total.
+    const byTime = new Map(kept);
+    for (const reading of [...(data?.older || []), ...(data?.newer || [])]) {
+      const time = Date.parse(reading.readAt);
+      const wh = number(reading.consumptionDelta);
+      const watts = Number.isFinite(wh) ? wh * 12 : number(reading.demand);
+      if (Number.isFinite(time) && Number.isFinite(watts) && time >= limit) byTime.set(time, Math.round(watts));
+    }
+    next = {
+      points: [...byTime].sort((first, second) => first[0] - second[0]),
+      reachedFrom: older ? older.from : reachedFrom,
+      chunkMs: chunk,
+      // An empty answer for the older range means Octopus has nothing before it.
+      complete: Boolean(saved.complete || (older && (!data?.older?.length || older.from <= limit))),
+      error: null
+    };
   }
-  const points = [...byTime].sort((first, second) => first[0] - second[0]);
-  await store.setJSON(HISTORY_KEY, {
-    at: now,
-    points,
-    reachedFrom: older ? older.from : reachedFrom,
-    // An empty answer for the older range means Octopus has nothing before it.
-    complete: Boolean(saved.complete || (older && !data?.older?.length) || (older && older.from <= limit)),
-    error: null
-  });
+  const nextAt = now + (next.complete ? HISTORY_REFRESH_MS : HISTORY_BACKFILL_MS);
+  await store.setJSON(HISTORY_KEY, { ...next, at: now, nextAt });
+  await updateLive(store, { historyDueAt: nextAt });
 }
 
-// For the live view's "All" tab, without asking Octopus: { points: [[time, watts], …]
-// every five minutes, oldest first, complete (true once Octopus has nothing older),
-// updatedAt, error }, or null before the scheduled job's first update.
-export async function readSavedHistory(store) {
+// For the live view's "All" tab, one UK day at a time, without asking Octopus:
+// { days: ['YYYY-MM-DD', …] with readings, oldest first, date (the day asked for, or
+// the newest), from, to (its midnights), points: [[time, watts], …] that day, every five
+// minutes, complete (true once Octopus has nothing older), updatedAt, nextAt (when the
+// next update is due), error }, or null before the first update.
+export async function readSavedHistory(store, date, now = Date.now()) {
   const saved = await store.get(HISTORY_KEY, { type: 'json' });
   if (!saved?.at) return null;
-  return { points: saved.points || [], complete: Boolean(saved.complete), updatedAt: saved.at, error: saved.error || null };
+  const points = saved.points || [];
+  // Points are oldest first, so each day is named once, where it starts.
+  const days = [];
+  let dayEnd = -Infinity;
+  for (const [time] of points) {
+    if (time < dayEnd) continue;
+    const { year, month, day } = londonDate(time);
+    days.push(londonDay.format(new Date(time)));
+    dayEnd = londonMidnight(year, month, day + 1);
+  }
+  const shown = days.includes(date) ? date : days.at(-1) || londonDay.format(new Date(now));
+  const [year, month, day] = shown.split('-').map(Number);
+  const from = londonMidnight(year, month, day);
+  const to = londonMidnight(year, month, day + 1);
+  return {
+    days,
+    date: shown,
+    from,
+    to,
+    points: points.filter(([time]) => time >= from && time < to),
+    complete: Boolean(saved.complete),
+    updatedAt: saved.at,
+    nextAt: saved.nextAt ?? null,
+    error: saved.error || null
+  };
 }
 
 function liveAnswer({ at, points = [], today }) {

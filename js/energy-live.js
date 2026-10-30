@@ -2,16 +2,18 @@
 // page (js/profile.js), drawn like the live graph in the Octopus app: the power being
 // drawn now in large type, and a line of recent demand under it. Tabs pick the line's
 // span: the last 15 minutes or hour of 10-second readings, or "All", the five-minute
-// readings for as far back as Octopus keeps them. It asks the site API again a few
-// seconds after each minute's scheduled run while the tab is visible, and pauses while
-// it's hidden. Hovering the line (or
+// readings for as far back as Octopus keeps them, a day at a time with previous / next
+// day buttons. It asks the site API again a few seconds after each minute's scheduled
+// run while the tab is visible, and pauses while it's hidden. Hovering the line (or
 // the arrow keys once the chart has focus) reads off any moment.
 //
 // window.energyLive.start(container, { load, loadHistory, setPaused, onUpdate }):
 //   load()          resolves to the site API's ?energy-live answer:
 //                   { readAt, demand, points: [[time, watts], …], today: { kwh, cost } | null, updatedAt }
-//   loadHistory()   resolves to the site API's ?energy-history answer, asked for only
-//                   while "All" is chosen: { points: [[time, watts], …], complete, updatedAt, error }
+//   loadHistory(date)  resolves to the site API's ?energy-history answer for that UK day
+//                   ('YYYY-MM-DD', or null for the newest), asked for only while "All" is
+//                   chosen: { days, date, from, to, points: [[time, watts], …], complete,
+//                   updatedAt, nextAt, error }
 //   setPaused(on)   resolves to { paused } once readings are paused (or resumed) on the
 //                   site API; without it there's no Pause button. While paused, ?energy-live
 //                   answers with paused: true and the saved readings, and the page stops asking.
@@ -29,10 +31,11 @@
   const SETTLE_MS = 6000;
   const RECHECK_MS = 5000;
   const MAX_RECHECKS = 3;
-  // The job updates the history every 15 minutes, after the nickname, so "All" asks for
-  // it again HISTORY_SETTLE_MS after the next update is due. If that answer is still the
-  // old one (or an error), it waits HISTORY_RETRY_MS before asking again.
-  const HISTORY_EVERY_MS = 15 * 60 * 1000;
+  // The job updates the history every 5 minutes while it's still fetching older days and
+  // every 15 after, and says when the next update is due (nextAt), so "All" asks for the
+  // newest day again HISTORY_SETTLE_MS after that. If that answer is still the old one
+  // (or an error), it waits HISTORY_RETRY_MS before asking again. Past days don't change
+  // between updates, so each is only asked for once per update.
   const HISTORY_SETTLE_MS = 30000;
   const HISTORY_RETRY_MS = 5 * 60 * 1000;
   const MINUTE = 60000;
@@ -45,14 +48,15 @@
   const PLOT = { left: 44, right: 10, top: 24, bottom: 24 };
   const VIEW_KEY = 'energy-live-view';
 
-  // window: how far back the line goes (null: from the oldest reading). gap: readings
-  // further apart than this leave a gap in the line rather than joining up. step: how
-  // many readings the arrow keys move.
+  // window: how far back the line goes (null: a whole day). gap: readings further apart
+  // than this leave a gap in the line rather than joining up. step: how many readings
+  // the arrow keys move.
   const VIEWS = {
     quarter: { label: '15 min', window: 15 * MINUTE, gap: 45000, step: 6, stepText: 'minute', span: 'the last 15 minutes' },
     hour: { label: '1 hour', window: HOUR, gap: 45000, step: 6, stepText: 'minute', span: 'the last hour' },
     all: { label: 'All', window: null, gap: 11 * MINUTE, step: 12, stepText: 'hour', span: null }
   };
+  const FIVE_MINUTES = 5 * MINUTE;
   // Gaps between the times along the bottom; the smallest giving at most six labels.
   const TICK_STEPS = [5 * MINUTE, 15 * MINUTE, 30 * MINUTE, HOUR, 3 * HOUR, 6 * HOUR, 12 * HOUR, DAY, 2 * DAY, 7 * DAY, 14 * DAY];
 
@@ -63,6 +67,12 @@
   const dateFormat = new Intl.DateTimeFormat('en-GB', { ...london, day: 'numeric', month: 'short' });
   const fullFormat = new Intl.DateTimeFormat('en-GB', { ...london, weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
   const zoneFormat = new Intl.DateTimeFormat('en-GB', { ...london, timeZoneName: 'shortOffset' });
+  // A 'YYYY-MM-DD' day's name, like "Thu 29 Oct", read as UTC so it's that date anywhere.
+  const dayNameFormat = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short' });
+  const dayName = date => {
+    const [year, month, day] = date.split('-').map(Number);
+    return dayNameFormat.format(Date.UTC(year, month - 1, day));
+  };
   const axisFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
   const kwhFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
   const poundFormat = new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' });
@@ -126,15 +136,15 @@
     return runs;
   }
 
-  // The history's five-minute readings, then the live readings newer than them averaged
-  // into five minutes too, so "All" reaches the present between history updates.
+  // A day's five-minute readings, then the live readings newer than them that day
+  // averaged into five minutes too, so today reaches the present between history updates.
   function joinHistory(history, live) {
     const points = history.points.slice();
     const after = points.at(-1)?.[0] ?? -Infinity;
     const buckets = new Map();
     for (const [time, watts] of live?.points || []) {
-      const bucket = Math.floor(time / (5 * MINUTE)) * 5 * MINUTE;
-      if (bucket <= after) continue;
+      const bucket = Math.floor(time / FIVE_MINUTES) * FIVE_MINUTES;
+      if (bucket <= after || bucket < history.from || bucket >= history.to) continue;
       const sum = buckets.get(bucket) || [0, 0];
       buckets.set(bucket, [sum[0] + watts, sum[1] + 1]);
     }
@@ -142,7 +152,8 @@
     return points;
   }
 
-  function drawChart({ points: allPoints, start, end, view, live }, tooltip, frame, state) {
+  // tickStep, tipFormat and spanText are optional, for "All"'s whole days.
+  function drawChart({ points: allPoints, start, end, view, live, tickStep: fixedStep, tipFormat: fixedTip, spanText: fixedSpan }, tooltip, frame, state) {
     const points = allPoints.filter(([time]) => time >= start && time <= end);
     const span = Math.max(end - start, MINUTE);
     const chart = svg('svg', {
@@ -182,7 +193,7 @@
 
     // Times along the bottom on round UK clock times: just the time within a day, the
     // weekday too over longer spans, and the date once they're a day or more apart.
-    const tickStep = TICK_STEPS.find(each => span / each <= 6) || TICK_STEPS.at(-1);
+    const tickStep = fixedStep || TICK_STEPS.find(each => span / each <= 6) || TICK_STEPS.at(-1);
     // Stepped in UK clock time, with each label's own offset, so they stay on the hour
     // across a clock change.
     const tickFormat = tickStep >= DAY ? dateFormat : span > DAY ? dayTimeFormat : timeFormat;
@@ -218,7 +229,7 @@
     chart.append(cursor, marker);
 
     // Readings within the last day only need the time; older ones need the date too.
-    const tipFormat = span > DAY ? fullFormat : secondsFormat;
+    const tipFormat = fixedTip || (span > DAY ? fullFormat : secondsFormat);
     let active = null;
     function setActive(index) {
       active = index;
@@ -285,7 +296,7 @@
 
     const watts = points.map(([, value]) => value);
     const average = watts.length ? watts.reduce((sum, value) => sum + value, 0) / watts.length : 0;
-    const spanText = view.span || `since ${fullFormat.format(start)}`;
+    const spanText = fixedSpan || view.span || `since ${fullFormat.format(start)}`;
     chart.setAttribute('aria-label', points.length
       ? `Electricity demand over ${spanText}: latest ${power(newest[1])}, peak ${power(max)}, average ${power(average)}. Use the arrow keys to read each ${view.stepText}.`
       : `Electricity demand over ${spanText}: no readings.`);
@@ -338,13 +349,25 @@
     pauseButton.hidden = !setPaused;
     const controls = html('div', 'energy-live-controls');
     controls.append(tabs, pauseButton);
-    container.replaceChildren(head, controls, frame, note);
+    // "All": a day at a time, like the half-hourly chart below (js/energy-chart.js).
+    const previousDay = html('button', 'profile-button', '‹ Previous day');
+    const nextDay = html('button', 'profile-button', 'Next day ›');
+    previousDay.type = nextDay.type = 'button';
+    const dayTitle = html('div', 'energy-chart-title');
+    const dayNav = html('div', 'energy-chart-head energy-live-days');
+    dayNav.append(previousDay, dayTitle, nextDay);
+    dayNav.hidden = true;
+    container.replaceChildren(head, controls, dayNav, frame, note);
 
     const state = { hoverTime: null };
     const current = {
       timer: null, version: 0, stopped: false, nextAt: null, loading: false, rechecks: 0, paused: false,
       dueAt: null, view: loadHistory ? readView() : 'hour', live: null,
-      history: null, historyError: null, historyDueAt: 0, historyLoading: null
+      // history: the answer for the day shown. historyDate: the day chosen (null: the
+      // newest). days: every day there is. dayCache: past days already fetched, kept
+      // until the history's next update (historyUpdatedAt).
+      history: null, historyDate: null, days: [], dayCache: new Map(), newestHistory: null, historyUpdatedAt: null,
+      historyError: null, historyDueAt: 0, historyLoading: new Map()
     };
     session = current;
 
@@ -363,15 +386,37 @@
           redraw();
           // The history is asked for the first time "All" is opened, on its own: the
           // live readings already shown are as new as there are until the next run.
-          if (name === 'all' && Date.now() >= current.historyDueAt) {
-            updateHistory().then(() => {
-              if (!current.stopped && current.view === 'all') redraw();
-            });
-          }
+          if (name === 'all' && !current.historyDate && Date.now() >= current.historyDueAt) showDay(null);
         });
         return button;
       });
     tabs.append(...buttons);
+
+    // Shows a day ('YYYY-MM-DD', or null for the newest), from the cache if it's there.
+    function showDay(date) {
+      current.historyDate = date;
+      state.hoverTime = null;
+      const cached = date ? current.dayCache.get(date)
+        : Date.now() < current.historyDueAt && current.newestHistory;
+      if (cached) {
+        current.history = cached;
+        redraw();
+        return;
+      }
+      redraw();
+      updateHistory(date).then(() => {
+        if (!current.stopped && current.view === 'all' && current.historyDate === date) redraw();
+      });
+    }
+
+    function stepDay(by) {
+      const index = current.days.indexOf(current.history?.date);
+      const target = current.days[index + by];
+      if (index === -1 || !target) return;
+      showDay(target === current.days.at(-1) ? null : target);
+    }
+    previousDay.addEventListener('click', () => stepDay(-1));
+    nextDay.addEventListener('click', () => stepDay(1));
 
     function showTabs() {
       for (const button of buttons) {
@@ -428,21 +473,34 @@
       const view = VIEWS[current.view];
       const live = current.live;
       let chartData;
+      dayNav.hidden = current.view !== 'all';
       if (current.view === 'all') {
+        // The day asked for, once its answer is here; until then the day shown before.
         const history = current.history;
         if (!history) {
+          dayNav.hidden = true;
           frame.replaceChildren(html('p', 'energy-live-empty', current.historyError || 'Loading the Home Mini history…'));
           showNote('');
           return;
         }
-        const points = joinHistory(history, live);
-        const end = live?.updatedAt || Date.now();
-        chartData = { points, start: points[0]?.[0] ?? end - DAY, end, view, live: false };
+        const newest = history.date === current.days.at(-1);
+        const points = newest ? joinHistory(history, live) : history.points;
+        // Each point is five minutes' average power, so five minutes of it is used.
+        const kwh = points.reduce((sum, [, watts]) => sum + watts, 0) * (FIVE_MINUTES / HOUR) / 1000;
+        const name = dayName(history.date);
+        dayTitle.replaceChildren(html('strong', '', name), html('span', 'energy-chart-total', `${kwhFormat.format(kwh)} kWh`));
+        const index = current.days.indexOf(history.date);
+        previousDay.disabled = index <= 0;
+        nextDay.disabled = index === -1 || index === current.days.length - 1;
+        chartData = {
+          points, start: history.from, end: history.to, view, live: false,
+          tickStep: 3 * HOUR, tipFormat: timeFormat, spanText: name
+        };
         const notes = [];
-        if (points.length) {
-          notes.push(`Five-minute averages since ${fullFormat.format(points[0][0])}${history.complete ? ', as far back as Octopus keeps them' : '; older readings are still being collected'}.`);
+        if (current.days.length) {
+          notes.push(`Five-minute averages, ${dayName(current.days[0])} to ${dayName(current.days.at(-1))} (${current.days.length} ${current.days.length === 1 ? 'day' : 'days'})${history.complete ? ': as far back as the Home Mini goes.' : '. Older days are still being fetched from Octopus, a few at a time.'}`);
         }
-        if (history.error) notes.push(`Octopus wouldn't give older readings: ${history.error}`);
+        if (history.error) notes.push(`Octopus: ${history.error}`);
         if (current.historyError) notes.push(current.historyError);
         showNote(notes.join(' '));
       } else {
@@ -461,27 +519,41 @@
       restore();
     }
 
-    // One request at a time: switching tabs back and forth shares the one in flight.
-    function updateHistory() {
-      current.historyLoading ||= fetchHistory().finally(() => { current.historyLoading = null; });
-      return current.historyLoading;
+    // One request a day at a time: clicking or switching tabs again shares the one in flight.
+    function updateHistory(date) {
+      const key = date || '';
+      if (!current.historyLoading.has(key)) {
+        current.historyLoading.set(key, fetchHistory(date).finally(() => current.historyLoading.delete(key)));
+      }
+      return current.historyLoading.get(key);
     }
 
-    async function fetchHistory() {
+    async function fetchHistory(date) {
       try {
-        const history = await loadHistory();
+        const history = await loadHistory(date);
         if (current.stopped) return;
-        if (!Array.isArray(history?.points)) throw new Error('The Netlify service is out of date: redeploy it (Netlify → Deploys → Trigger deploy).');
-        const updated = history.updatedAt !== current.history?.updatedAt;
-        current.history = history;
+        if (!Array.isArray(history?.days)) throw new Error('The Netlify service is out of date: redeploy it (Netlify → Deploys → Trigger deploy).');
+        const updated = history.updatedAt !== current.historyUpdatedAt;
+        // A new update can change any day near where it fetched, so start the cache again.
+        if (updated) current.dayCache.clear();
+        current.historyUpdatedAt = history.updatedAt;
+        current.days = history.days;
         current.historyError = null;
-        current.historyDueAt = updated
-          ? Math.max(history.updatedAt + HISTORY_EVERY_MS + HISTORY_SETTLE_MS, Date.now() + RUN_MS)
-          : Date.now() + HISTORY_RETRY_MS;
+        const newest = history.date === history.days.at(-1);
+        if (newest) current.newestHistory = history;
+        else current.dayCache.set(history.date, history);
+        // Only the day still being asked for is shown (a click may have moved on).
+        if (current.historyDate === date || (newest && !current.historyDate)) current.history = history;
+        // Only asking for the newest day keeps it up to date, when the job's next update is in.
+        if (!date) {
+          current.historyDueAt = updated && history.nextAt
+            ? Math.max(history.nextAt + HISTORY_SETTLE_MS, Date.now() + RUN_MS)
+            : Date.now() + HISTORY_RETRY_MS;
+        }
       } catch (error) {
         if (current.stopped) return;
         current.historyError = error.message;
-        current.historyDueAt = Date.now() + HISTORY_RETRY_MS;
+        if (!date) current.historyDueAt = Date.now() + HISTORY_RETRY_MS;
       }
     }
 
@@ -497,8 +569,9 @@
       let nextAt;
       current.loading = true;
       showCountdown();
-      // The history only while "All" is open, and not on every tick: it changes slowly.
-      const historyDue = current.view === 'all' && loadHistory && Date.now() >= current.historyDueAt;
+      // The newest day's history only while it's open in "All", and only once the job's
+      // next update is due: it changes slowly, and past days don't change at all.
+      const historyDue = current.view === 'all' && loadHistory && !current.historyDate && Date.now() >= current.historyDueAt;
       const historyUpdate = historyDue ? updateHistory() : null;
       try {
         const live = await load();
