@@ -230,6 +230,19 @@
   color: var(--site-accent);
 }
 
+/* "(Netlify)", "(Octopus)" and so on after each call. */
+.debug-service {
+  color: var(--site-muted);
+}
+
+.debug-log .bot-log-line[title] {
+  cursor: help;
+}
+
+.debug-log .bot-log-line:hover {
+  background: rgba(241, 240, 235, 0.06);
+}
+
 .profile-admin-title {
   color: var(--site-ink);
   font-size: 1rem;

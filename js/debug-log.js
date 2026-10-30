@@ -39,6 +39,99 @@
     }
   }
 
+  // Who each line went to, shown in brackets after it.
+  function serviceOf(source, text) {
+    if (source === 'Page' || text.startsWith('Blobs')) return 'Netlify';
+    if (text.startsWith('Octopus')) return 'Octopus';
+    if (text.startsWith('Discord')) return 'Discord';
+    if (text.startsWith('Gemini')) return 'Google';
+    return 'Browser';
+  }
+
+  // What a page call asks the API for, by its query or POST action.
+  const PAGE_CALLS = [
+    [/^\?session/, 'Checked the sign-in is still good.'],
+    [/^\?stats/, 'Fetched the Stats page numbers (views, errors, Gemini use).'],
+    [/^\?whoami/, 'Asked Netlify for your IP and rough location (not stored).'],
+    [/^\?recent/, 'Fetched the recently added games.'],
+    [/^\?energy=fresh/, 'Asked for a fresh electricity summary: Octopus is asked if the saved one is over 5 minutes old.'],
+    [/^\?energy=/, 'Fetched the electricity summary (tiles and half-hourly chart), saved for 30 minutes.'],
+    [/^\?energy-live/, "Fetched the Home Mini's latest readings the scheduled job saved. Doesn't ask Octopus."],
+    [/^\?energy-history/, "Fetched one day of the 5-minute history for the \"All\" tab. Doesn't ask Octopus."],
+    [/^\?wattnick=status/, "Fetched the Discord bot's status and log. Doesn't ask Discord."],
+    [/^\?wattnick/, "Fetched the Discord bot's settings, status and the servers it's in (asks Discord for those)."],
+    [/^\?users/, 'Fetched the list of accounts.'],
+    [/^\?profile=/, "Fetched a profile's details."],
+    [/^\?user=/, "Fetched someone's backlog."],
+    [/^view$/, 'Counted this page view for the Stats page.'],
+    [/^error$/, 'Reported a JavaScript error for the Stats page.'],
+    [/^debug$/, "Turned the scheduled job's debug logging on or off (on lasts an hour, renewed while open)."],
+    [/^energy-settings$/, 'Paused or resumed the live readings.'],
+    [/^wattnick-settings$/, 'Saved the Discord bot settings.'],
+    [/^set-color$/, 'Saved your site colour.'],
+    [/^categorize$/, 'Asked for a genre for a game (Gemini).'],
+    [/^save game$/, 'Saved a game to the backlog.'],
+    [/^(login|register)$/, 'Signed in or created an account.']
+  ];
+
+  // What a Blobs entry holds, by its key.
+  const BLOB_KEYS = [
+    [/energy-live$/, 'the live readings, plus the pause and debug switches and when the history and archive are next due'],
+    [/octopus-auth$/, 'the saved Octopus sign-in and Home Mini ID'],
+    [/energy-history$/, 'the 5-minute history'],
+    [/energy-archive-state$/, "the 10-second archive's progress"],
+    [/ten-seconds\//, "a day's 10-second readings in the archive"],
+    [/wattnick-settings$/, 'the Discord bot settings'],
+    [/wattnick-status$/, "the Discord bot's status"],
+    [/wattnick-log$/, "the Discord bot's log"],
+    [/debug-log/, 'this debug log'],
+    [/\/energy$/, 'the saved electricity summary'],
+    [/\/views$/, 'the page view counts'],
+    [/\/errors$/, 'the error list'],
+    [/gemini/, 'the Gemini usage counts'],
+    [/\/recent$/, 'the recently added games'],
+    [/settings-/, "an account's settings"],
+    [/user-/, 'an account'],
+    [/game-|public-game-backlog/, 'backlog games']
+  ];
+  const BLOB_VERBS = {
+    get: 'Read', getWithMetadata: 'Read', getMetadata: 'Checked', set: 'Saved', setJSON: 'Saved', delete: 'Deleted', list: 'Listed'
+  };
+
+  const OUTSIDE_CALLS = [
+    [/GraphQL query live/, "Fetched the Home Mini's newest 10-second readings since the last ones (and today's total when it's due)."],
+    [/GraphQL query history/, 'Fetched 5-minute readings for the history: the newest, and older days while it searches back.'],
+    [/GraphQL query archive/, "Fetched a whole day's 10-second readings for the archive."],
+    [/GraphQL mutation krakenToken/, 'Signed in to Octopus (the sign-in lasts about an hour).'],
+    [/GraphQL query homeMini/, "Looked up the Home Mini's device ID (done once, then saved)."],
+    [/Octopus GET .*\/accounts\//, "Read the account to find the meter's current tariff."],
+    [/Octopus GET .*\/consumption\//, "Fetched the meter's half-hourly readings."],
+    [/Discord PATCH .*\/members\//, 'Changed your nickname in a server.'],
+    [/Discord GET .*\/members\//, 'Read your current name in a server (for Append).'],
+    [/Discord GET \/users\/@me\/guilds/, 'Listed the servers the bot is in.'],
+    [/^Gemini/, "Asked Google's Gemini for a game's genre."],
+    [/^Local mock/, 'The local mock answered this in the browser; nothing went to Netlify.']
+  ];
+
+  // The hover text for a line.
+  function describe(source, text) {
+    const call = text.replace(/^↳ /, '');
+    if (source === 'Page') {
+      const [, method, target] = call.match(/^(\w+) (\S+)/) || [];
+      if (method === 'DELETE') return 'Removed a game from the backlog.';
+      if (method === 'GET' && target === '/') return 'Fetched a backlog.';
+      return PAGE_CALLS.find(([pattern]) => pattern.test(target || ''))?.[1] || 'A call to the site API on Netlify.';
+    }
+    const blob = call.match(/^Blobs (\w+)(?: \+ \w+)? (\S+)/);
+    if (blob) {
+      const what = BLOB_KEYS.find(([pattern]) => pattern.test(blob[2]))?.[1] || 'an entry';
+      const verb = call.includes(' + ') ? 'Read and saved' : BLOB_VERBS[blob[1]] || blob[1];
+      const note = blob[1] === 'getWithMetadata' ? ', with its version so it can be updated safely' : '';
+      return `${verb} ${what}${note}.`;
+    }
+    return OUTSIDE_CALLS.find(([pattern]) => pattern.test(call))?.[1] || '';
+  }
+
   window.siteDebug = { on: false };
   let session = null;
 
@@ -87,11 +180,16 @@
       box.replaceChildren(...(lines.length
         ? lines.slice().reverse().map(line => {
           const row = html('div', `bot-log-line${line.error ? ' is-error' : ''}`);
+          const text = html('span', '', line.text);
+          text.append(' ', html('span', 'debug-service', `(${serviceOf(line.source, line.text)})`));
           row.append(
             html('time', 'bot-log-time', timeFormat.format(line.at)),
             html('span', `debug-source is-${line.source.toLowerCase()}`, line.source),
-            html('span', '', line.text)
+            text
           );
+          // Hovering a line says what that call did.
+          const description = describe(line.source, line.text);
+          if (description) row.title = description;
           return row;
         })
         : [html('div', 'bot-log-line bot-log-empty', 'No calls yet. They show here as they happen.')]));
