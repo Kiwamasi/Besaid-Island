@@ -21,9 +21,9 @@
   const SESSION_KEY = 'besaid-backlog-session';
 
   const mockSpeakers = [
-    { id: 'kitchen', name: 'Kitchen', type: 'Speaker', active: true, online: true, playing: true, track: 'To Zanarkand', artist: 'Nobuo Uematsu', volume: 40 },
-    { id: 'living-room', name: 'Living Room', type: 'Speaker', active: false, online: true, playing: false, track: '', artist: '', volume: 25 },
-    { id: 'bedroom', name: 'Bedroom', type: 'Speaker', active: false, online: false, playing: false, track: '', artist: '', volume: 15 }
+    { id: 'kitchen', name: 'Kitchen', type: 'Speaker', active: true, online: true, playing: true, track: 'To Zanarkand', artist: 'Nobuo Uematsu', volume: 40, supportsVolume: true },
+    { id: 'living-room', name: 'Living Room', type: 'Speaker', active: false, online: true, playing: false, track: '', artist: '', volume: 25, supportsVolume: true },
+    { id: 'bedroom', name: 'Bedroom', type: 'Speaker', active: false, online: false, playing: false, track: '', artist: '', volume: 15, supportsVolume: true }
   ];
 
   const GAMES_KEY = 'besaid-mock-backlog';
@@ -311,8 +311,15 @@
       // the time alone, so each answer carries on from the last.
       // Fake Home Suite speakers, for UI design only.
       if (url.searchParams.has('home-suite')) {
-        // controls: true shows the full cards, as the server will once it can send commands.
-        return json(200, { configured: true, connected: true, controls: false, speakers: mockSpeakers });
+        if (url.searchParams.get('home-suite') === 'playlists') {
+          return json(200, { configured: true, total: 4, playlists: [
+            { uri: 'spotify:playlist:mock1', name: 'Besaid Evenings', owner: 'Kiwamari', tracks: 42, image: '' },
+            { uri: 'spotify:playlist:mock2', name: 'Cooking', owner: 'Kiwamari', tracks: 118, image: '' },
+            { uri: 'spotify:playlist:mock3', name: 'Final Fantasy X Soundtrack With A Long Name', owner: 'Someone Else', tracks: 91, image: '' },
+            { uri: 'spotify:playlist:mock4', name: 'Sleep', owner: 'Kiwamari', tracks: null, image: '' }
+          ] });
+        }
+        return json(200, { configured: true, connected: true, playlists: true, speakers: mockSpeakers });
       }
       // Fake Discord bot panel, for UI design only.
       if (url.searchParams.has('wattnick')) {
@@ -472,11 +479,14 @@
     if (method === 'POST' && body?.action === 'home-suite') {
       const speaker = mockSpeakers.find(({ id }) => id === body.speaker);
       if (body.command === 'volume') speaker.volume = body.value;
-      if (body.command === 'music') Object.assign(speaker, { playing: true, track: body.value, artist: '' });
-      if (body.command === 'play') speaker.playing = true;
-      if (body.command === 'pause') speaker.playing = false;
-      if (body.command === 'stop') Object.assign(speaker, { playing: false, track: '', artist: '' });
-      return json(200, { speaker });
+      if (['music', 'playlist', 'play'].includes(body.command)) {
+        for (const other of mockSpeakers) {
+          if (other !== speaker) Object.assign(other, { active: false, playing: false, track: '', artist: '' });
+        }
+        Object.assign(speaker, { active: true, playing: true, track: body.command === 'play' ? speaker.track || 'Mock track' : `Mock track from ${body.value}`, artist: 'Mock artist' });
+      }
+      if (body.command === 'pause' || body.command === 'stop') speaker.playing = false;
+      return json(200, { speakers: mockSpeakers });
     }
 
     // Fake Discord bot settings save, for UI design only: echoes what was sent.

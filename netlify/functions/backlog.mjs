@@ -3,7 +3,7 @@ import { createHmac, randomBytes, scrypt as scryptCallback, timingSafeEqual } fr
 import { promisify } from 'node:util';
 import { DEBUG_LOG_KEY, recordCall, recordedStore, startRecording, takeRecording } from '../lib/debug-log.mjs';
 import { octopusConfigured, readEnergySummary, readSavedHistory, readSavedLive, setDebug, setLivePaused } from '../lib/octopus.mjs';
-import { connectSpotify, readSpotifyDevices, spotifyAuthUrl, spotifyConfigured } from '../lib/spotify.mjs';
+import { connectSpotify, readSpotifyPlaylists, readSpotifySpeakers, sendSpotifyCommand, spotifyAuthUrl, spotifyConfigured } from '../lib/spotify.mjs';
 import { discordConfigured, readWattnickPanel, readWattnickStatus, saveWattnickSettings } from '../lib/wattnick.mjs';
 
 const STORE_NAME = 'public-game-backlog';
@@ -871,14 +871,18 @@ export default async (request, context) => {
       }
 
       // ?home-suite: the speakers Spotify can see, for the Home Suite page (js/home-suite.js).
+      // ?home-suite=playlists: the admin's playlists.
       if (params.has('home-suite')) {
         if (!session?.isAdmin) return respond(request, 403, { error: 'Only the admin can control the speakers' });
         if (!spotifyConfigured()) return respond(request, 200, { configured: false });
         try {
-          return respond(request, 200, { configured: true, ...(await readSpotifyDevices(statsStore())) });
+          if (params.get('home-suite') === 'playlists') {
+            return respond(request, 200, { configured: true, ...(await readSpotifyPlaylists(statsStore())) });
+          }
+          return respond(request, 200, { configured: true, ...(await readSpotifySpeakers(statsStore())) });
         } catch (error) {
           console.error('Spotify request failed', error);
-          return respond(request, 502, { error: `Couldn't get the speakers from Spotify: ${error.message}` });
+          return respond(request, error.invalidRequest ? 400 : 502, { error: `Couldn't ask Spotify: ${error.message}` });
         }
       }
 
@@ -976,10 +980,16 @@ export default async (request, context) => {
       return respond(request, 200, { url: spotifyAuthUrl(createSpotifyState()) });
     }
 
-    // Sent by the Home Suite page's controls, which aren't connected to Spotify yet.
+    // Sent by the Home Suite page's controls: { speaker, command, value }.
     if (request.method === 'POST' && body?.action === 'home-suite') {
       if (!session.isAdmin) return respond(request, 403, { error: 'Only the admin can control the speakers' });
-      return respond(request, 503, { error: "The speaker controls aren't connected yet" });
+      if (!spotifyConfigured()) return respond(request, 503, { error: "Spotify isn't set up yet" });
+      try {
+        return respond(request, 200, { speakers: await sendSpotifyCommand(statsStore(), body) });
+      } catch (error) {
+        console.error('Spotify command failed', error);
+        return respond(request, error.invalidRequest ? 400 : 502, { error: error.message });
+      }
     }
 
     if (request.method === 'POST' && body?.action === 'clear-errors') {

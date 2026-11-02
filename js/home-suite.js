@@ -3,13 +3,15 @@
 // can use it, and the site API refuses all of this to anyone but the admin.
 //
 // The speakers are reached through Spotify (netlify/lib/spotify.mjs). ?home-suite answers
-// { configured, connected, controls, speakers: [{ id, name, type, active, online, volume,
-// playing, track, artist }] }. Until controls is true the server only lists what Spotify
-// can see, with no way to send commands, so the speakers show as plain cards.
+// { configured, connected, playlists, speakers: [{ id, name, type, active, online, playing,
+// track, artist, volume, supportsVolume }] }. playlists is whether the Spotify sign-in
+// allows reading them; ?home-suite=playlists answers { total, playlists: [{ uri, name,
+// owner, tracks, image }] }.
 //
-// POST home-suite takes { speaker, command, value } and answers with that speaker as it
-// now is. Commands: play, pause, stop, previous, next, volume (value 0 to 100) and music
-// (value is what to play). The speakers aren't polled, to keep requests down: they're
+// POST home-suite takes { speaker, command, value } and answers with { speakers }, all of
+// them, as starting music on one stops it on another. Commands: play, pause, stop,
+// previous, next, volume (value 0 to 100), music (value is what to search for) and
+// playlist (value is its uri). The speakers aren't polled, to keep requests down: they're
 // asked for when the page opens and by Refresh.
 (() => {
   const account = window.siteAccount;
@@ -22,11 +24,15 @@
   const musicSpeaker = document.getElementById('suiteMusicSpeaker');
   const musicPlay = document.getElementById('suiteMusicPlay');
   const musicError = document.getElementById('suiteMusicError');
+  const playlists = document.getElementById('suitePlaylists');
+  const playlistsNote = document.getElementById('suitePlaylistsNote');
+  const playlistList = document.getElementById('suitePlaylistList');
 
   let shownFor = null;
   let version = 0;
-  // Each speaker's card, by ID, so the music form can update the one it played on.
+  // Each speaker's card, by ID, so an answer about all the speakers can update them.
   let cards = new Map();
+  let playlistsLoaded = false;
 
   // Spotify sends the browser back with how connecting went (see backlog.mjs). Read once
   // and taken out of the address, so a reload doesn't repeat the message.
@@ -58,20 +64,9 @@
     music.hidden = true;
     connect.hidden = true;
     musicError.textContent = '';
-  }
-
-  // A speaker as Spotify lists it, before there are controls to send it commands.
-  function deviceCard(device) {
-    const card = html('li', 'suite-speaker');
-    const head = html('div', 'suite-speaker-head');
-    const badge = html('span', 'suite-badge', !device.online ? 'Restricted' : device.active ? 'Active' : 'Available');
-    badge.classList.toggle('is-on', device.online && device.active);
-    head.append(html('h2', 'suite-speaker-name', device.name), badge);
-    const details = [device.type];
-    if (device.volume !== null && device.volume !== undefined) details.push(`Volume ${device.volume}%`);
-    if (!device.online) details.push('Spotify says it refuses remote control');
-    card.append(head, html('p', 'suite-speaker-playing', details.join(' · ')));
-    return card;
+    playlists.hidden = true;
+    playlistList.replaceChildren();
+    playlistsLoaded = false;
   }
 
   function speakerCard(first) {
@@ -84,9 +79,9 @@
     const previous = html('button', 'suite-button', 'Previous');
     const toggle = html('button', 'suite-button suite-toggle');
     const next = html('button', 'suite-button', 'Next');
-    // This stops whatever's playing: an Echo can't be powered down from outside.
+    // This stops whatever Spotify is playing: an Echo can't be powered down from outside.
     const off = html('button', 'suite-button suite-off', 'Turn off');
-    off.title = 'Stops whatever is playing on this speaker';
+    off.title = 'Stops Spotify on this speaker';
     previous.setAttribute('aria-label', `Previous on ${first.name}`);
     next.setAttribute('aria-label', `Next on ${first.name}`);
     off.setAttribute('aria-label', `Turn off ${first.name}`);
@@ -110,20 +105,25 @@
 
     let speaker = first;
     function setDisabled(disabled) {
-      for (const button of buttons) button.disabled = disabled || !speaker.online;
-      volume.disabled = disabled || !speaker.online;
+      const blocked = disabled || !speaker.online;
+      toggle.disabled = blocked;
+      // Only the speaker Spotify is playing on has anything to skip or stop.
+      previous.disabled = blocked || !speaker.active;
+      next.disabled = blocked || !speaker.active;
+      off.disabled = blocked || !speaker.playing;
+      volume.disabled = blocked || !speaker.supportsVolume;
     }
     function show(fresh) {
       speaker = fresh;
-      badge.textContent = !speaker.online ? 'Offline' : speaker.playing ? 'Playing' : 'Idle';
+      badge.textContent = !speaker.online ? 'Restricted' : speaker.playing ? 'Playing' : speaker.active ? 'Paused' : 'Idle';
       badge.classList.toggle('is-on', speaker.online && speaker.playing);
-      playing.textContent = speaker.track
-        ? [speaker.track, speaker.artist].filter(Boolean).join(' · ')
-        : 'Nothing playing';
+      playing.textContent = !speaker.online
+        ? 'Spotify says it refuses remote control'
+        : speaker.track ? [speaker.track, speaker.artist].filter(Boolean).join(' · ') : 'Nothing playing';
       toggle.textContent = speaker.playing ? 'Pause' : 'Play';
       toggle.setAttribute('aria-label', `${speaker.playing ? 'Pause' : 'Play'} ${speaker.name}`);
       volume.value = String(speaker.volume ?? 0);
-      volumeValue.textContent = `${volume.value}%`;
+      volumeValue.textContent = speaker.supportsVolume ? `${volume.value}%` : 'n/a';
       setDisabled(false);
     }
 
@@ -132,7 +132,7 @@
       error.textContent = '';
       try {
         const result = await sendCommand(speaker.id, command, value);
-        show(result.speaker);
+        updateSpeakers(result.speakers);
       } catch (failure) {
         error.textContent = failure.message;
         // Back to what the speaker last said, as the slider may have moved.
@@ -160,20 +160,90 @@
       return made.card;
     }));
     const chosen = musicSpeaker.value;
-    musicSpeaker.replaceChildren(...speakers.filter(speaker => speaker.online).map(speaker => {
+    const usable = speakers.filter(speaker => speaker.online);
+    musicSpeaker.replaceChildren(...usable.map(speaker => {
       const option = html('option', '', speaker.name);
       option.value = speaker.id;
       return option;
     }));
-    if ([...musicSpeaker.options].some(option => option.value === chosen)) musicSpeaker.value = chosen;
-    music.hidden = !musicSpeaker.options.length;
+    // What was picked, or else the speaker already playing.
+    const pick = usable.find(speaker => speaker.id === chosen) || usable.find(speaker => speaker.active);
+    if (pick) musicSpeaker.value = pick.id;
+    music.hidden = !usable.length;
+  }
+
+  // Keeps the cards in place, so focus isn't lost, unless the speakers themselves changed
+  // (Spotify drops an Echo from its list once it's been quiet for a while).
+  function updateSpeakers(speakers) {
+    if (speakers.length === cards.size && speakers.every(speaker => cards.has(speaker.id))) {
+      for (const speaker of speakers) cards.get(speaker.id).show(speaker);
+    } else {
+      showSpeakers(speakers);
+    }
+  }
+
+  function playlistTile(playlist) {
+    const tile = html('button', 'suite-playlist');
+    tile.type = 'button';
+    const image = playlist.image ? html('img', 'suite-playlist-image') : html('span', 'suite-playlist-image');
+    if (playlist.image) {
+      image.src = playlist.image;
+      image.alt = '';
+      image.loading = 'lazy';
+    }
+    const details = [playlist.owner, playlist.tracks === null ? '' : `${playlist.tracks} tracks`].filter(Boolean);
+    tile.append(image, html('span', 'suite-playlist-name', playlist.name), html('span', 'suite-playlist-detail', details.join(' · ')));
+    tile.setAttribute('aria-label', `Play ${playlist.name}`);
+    tile.addEventListener('click', () => playPlaylist(playlist));
+    const item = html('li');
+    item.append(tile);
+    return item;
+  }
+
+  async function playPlaylist(playlist) {
+    const id = musicSpeaker.value;
+    if (!id) {
+      playlistsNote.textContent = 'There are no speakers to play on. Press Refresh, or play something on one from the Spotify app.';
+      return;
+    }
+    const speakerName = musicSpeaker.selectedOptions[0].textContent;
+    const tiles = [...playlistList.querySelectorAll('button')];
+    for (const tile of tiles) tile.disabled = true;
+    playlistsNote.textContent = `Starting ${playlist.name} on ${speakerName}…`;
+    try {
+      const result = await sendCommand(id, 'playlist', playlist.uri);
+      updateSpeakers(result.speakers);
+      playlistsNote.textContent = `Playing ${playlist.name} on ${speakerName}.`;
+    } catch (failure) {
+      playlistsNote.textContent = failure.message;
+    } finally {
+      for (const tile of tiles) tile.disabled = false;
+    }
+  }
+
+  async function loadPlaylists() {
+    if (playlistsLoaded) return;
+    const shownVersion = version;
+    playlists.hidden = false;
+    playlistsNote.textContent = 'Loading playlists…';
+    try {
+      const answer = await account.request('GET', null, '?home-suite=playlists');
+      if (shownVersion !== version) return;
+      playlistList.replaceChildren(...answer.playlists.map(playlistTile));
+      playlistsLoaded = true;
+      playlistsNote.textContent = !answer.playlists.length
+        ? 'No playlists on this Spotify account.'
+        : `Press one to play it on the speaker picked under Play music.${answer.total > answer.playlists.length ? ` Showing the first ${answer.playlists.length} of ${answer.total}.` : ''}`;
+    } catch (error) {
+      if (shownVersion === version) playlistsNote.textContent = error.message;
+    }
   }
 
   async function load() {
     const shownVersion = ++version;
     refresh.hidden = false;
     refresh.disabled = true;
-    note.textContent = 'Asking the speakers…';
+    note.textContent = 'Asking Spotify…';
     try {
       const answer = await account.request('GET', null, '?home-suite');
       if (shownVersion !== version) return;
@@ -188,21 +258,25 @@
       }
       if (!answer.connected) {
         clearSpeakers();
+        connect.textContent = 'Connect Spotify';
         connect.hidden = false;
+        connect.disabled = false;
         note.textContent = spotifyResult || "Spotify isn't connected yet.";
         spotifyResult = '';
         return;
       }
-      connect.hidden = true;
-      if (answer.controls) {
-        showSpeakers(answer.speakers);
-      } else {
-        clearSpeakers();
-        list.replaceChildren(...answer.speakers.map(deviceCard));
-      }
-      note.textContent = !answer.speakers.length
-        ? "Spotify can't see any speakers right now. Play something on an Echo from the Spotify app, then press Refresh."
-        : answer.controls ? '' : 'These are the speakers Spotify can see right now. The controls come next.';
+      showSpeakers(answer.speakers);
+      // A sign-in from before the playlists were added still works for the speakers.
+      connect.textContent = 'Reconnect Spotify';
+      connect.hidden = answer.playlists;
+      connect.disabled = false;
+      note.textContent = [
+        spotifyResult,
+        !answer.speakers.length && "Spotify can't see any speakers right now. Play something on an Echo from the Spotify app, then press Refresh.",
+        !answer.playlists && 'Reconnect Spotify to show your playlists here: it needs one more permission.'
+      ].filter(Boolean).join(' ');
+      spotifyResult = '';
+      if (answer.playlists) loadPlaylists();
     } catch (error) {
       if (shownVersion !== version) return;
       note.textContent = error.message;
@@ -213,12 +287,11 @@
 
   music.addEventListener('submit', async event => {
     event.preventDefault();
-    const id = musicSpeaker.value;
     musicPlay.disabled = true;
     musicError.textContent = '';
     try {
-      const result = await sendCommand(id, 'music', musicQuery.value.trim());
-      cards.get(id)?.show(result.speaker);
+      const result = await sendCommand(musicSpeaker.value, 'music', musicQuery.value.trim());
+      updateSpeakers(result.speakers);
       musicQuery.value = '';
     } catch (failure) {
       musicError.textContent = failure.message;

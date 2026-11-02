@@ -211,6 +211,84 @@
   display: none;
 }
 
+/* ---------- Playlists ---------- */
+
+.suite-playlists {
+  margin-top: 2rem;
+}
+
+.suite-playlists[hidden] {
+  display: none;
+}
+
+.suite-section-title {
+  color: var(--site-ink);
+  font-size: 1.15rem;
+  font-weight: 500;
+}
+
+.suite-playlists .suite-note {
+  padding-top: 0.35rem;
+}
+
+.suite-playlist-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  gap: 1rem;
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.suite-playlist {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--site-line);
+  border-radius: 6px;
+  padding: 0.5rem;
+  background: transparent;
+  color: var(--site-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.suite-playlist:hover:not(:disabled) {
+  border-color: var(--site-accent);
+}
+
+.suite-playlist:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.suite-playlist-image {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 4px;
+  background: var(--site-field-bg);
+  object-fit: cover;
+}
+
+.suite-playlist-name,
+.suite-playlist-detail {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.suite-playlist-name {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.suite-playlist-detail {
+  margin-top: 0.15rem;
+  color: var(--site-muted);
+  font-size: 0.72rem;
+}
+
 @media (max-width: 640px) {
   .suite-main { padding: 1.25rem 1rem 2rem; }
 }

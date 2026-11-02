@@ -33,7 +33,7 @@
       <form class="suite-music" id="suiteMusic" hidden>
         <label class="form-field suite-music-query">
           <span>Play music</span>
-          <input type="text" id="suiteMusicQuery" maxlength="200" placeholder="Song, artist or playlist" autocomplete="off" required>
+          <input type="text" id="suiteMusicQuery" maxlength="200" placeholder="Song or artist" autocomplete="off" required>
         </label>
         <label class="form-field suite-music-speaker">
           <span>On</span>
@@ -44,6 +44,12 @@
       <p class="suite-error" id="suiteMusicError" role="alert"></p>
 
       <ul class="suite-speakers" id="suiteSpeakers" aria-label="Speakers"></ul>
+
+      <section class="suite-playlists" id="suitePlaylists" aria-labelledby="suitePlaylistsTitle" hidden>
+        <h2 class="suite-section-title" id="suitePlaylistsTitle">Playlists</h2>
+        <p class="suite-note" id="suitePlaylistsNote" role="status"></p>
+        <ul class="suite-playlist-list" id="suitePlaylistList"></ul>
+      </section>
     </div>
   </main>
 
