@@ -156,8 +156,26 @@
   color: var(--site-on-accent);
 }
 
-.suite-speaker-playing {
+.suite-speaker-now {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
   margin-top: 0.35rem;
+}
+
+.suite-speaker-art {
+  flex: none;
+  width: 3rem;
+  height: 3rem;
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+.suite-speaker-art[hidden] {
+  display: none;
+}
+
+.suite-speaker-playing {
   color: var(--site-muted);
   font-size: 0.8rem;
   overflow-wrap: anywhere;
@@ -171,7 +189,7 @@
 }
 
 .suite-toggle {
-  min-width: 4rem;
+  min-width: 5rem;
 }
 
 /* Pushed to the far end, away from the buttons pressed while listening. */

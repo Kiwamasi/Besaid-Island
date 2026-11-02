@@ -4,14 +4,15 @@
 //
 // The speakers are reached through Spotify (netlify/lib/spotify.mjs). ?home-suite answers
 // { configured, connected, playlists, speakers: [{ id, name, type, active, online, playing,
-// track, artist, volume, supportsVolume }] }. playlists is whether the Spotify sign-in
+// track, artist, image, volume, supportsVolume }] }. playlists is whether the Spotify sign-in
 // allows reading them; ?home-suite=playlists answers { total, playlists: [{ uri, name,
 // owner, tracks, image }] }.
 //
 // POST home-suite takes { speaker, command, value } and answers with { speakers }, all of
 // them, as starting music on one stops it on another. Commands: play, pause, stop,
-// previous, next, volume (value 0 to 100), music (value is what to search for) and
-// playlist (value is its uri). The speakers aren't polled, to keep requests down: they're
+// previous, next, move (brings what's playing here, at the same place in the track),
+// volume (value 0 to 100), music (value is what to search for) and playlist (value is
+// its uri). The speakers aren't polled, to keep requests down: they're
 // asked for when the page opens and by Refresh.
 (() => {
   const account = window.siteAccount;
@@ -32,6 +33,8 @@
   let version = 0;
   // Each speaker's card, by ID, so an answer about all the speakers can update them.
   let cards = new Map();
+  // Whether any speaker has music to move, which turns the other cards' Play into Move here.
+  let anyActive = false;
   let playlistsLoaded = false;
 
   // Spotify sends the browser back with how connecting went (see backlog.mjs). Read once
@@ -74,7 +77,11 @@
     const head = html('div', 'suite-speaker-head');
     const badge = html('span', 'suite-badge');
     head.append(html('h2', 'suite-speaker-name', first.name), badge);
+    const now = html('div', 'suite-speaker-now');
+    const art = html('img', 'suite-speaker-art');
+    art.alt = '';
     const playing = html('p', 'suite-speaker-playing');
+    now.append(art, playing);
 
     const previous = html('button', 'suite-button', 'Previous');
     const toggle = html('button', 'suite-button suite-toggle');
@@ -101,7 +108,7 @@
 
     const error = html('p', 'suite-error');
     error.setAttribute('role', 'alert');
-    card.append(head, playing, controls, volumeRow, error);
+    card.append(head, now, controls, volumeRow, error);
 
     let speaker = first;
     function setDisabled(disabled) {
@@ -113,6 +120,10 @@
       off.disabled = blocked || !speaker.playing;
       volume.disabled = blocked || !speaker.supportsVolume;
     }
+    function moveAction() {
+      if (speaker.playing) return 'Pause';
+      return anyActive && !speaker.active ? 'Move here' : 'Play';
+    }
     function show(fresh) {
       speaker = fresh;
       badge.textContent = !speaker.online ? 'Restricted' : speaker.playing ? 'Playing' : speaker.active ? 'Paused' : 'Idle';
@@ -120,8 +131,11 @@
       playing.textContent = !speaker.online
         ? 'Spotify says it refuses remote control'
         : speaker.track ? [speaker.track, speaker.artist].filter(Boolean).join(' · ') : 'Nothing playing';
-      toggle.textContent = speaker.playing ? 'Pause' : 'Play';
-      toggle.setAttribute('aria-label', `${speaker.playing ? 'Pause' : 'Play'} ${speaker.name}`);
+      art.hidden = !speaker.image;
+      if (speaker.image) art.src = speaker.image;
+      const action = moveAction();
+      toggle.textContent = action;
+      toggle.setAttribute('aria-label', `${action} ${action === 'Move here' ? `to ${speaker.name}` : speaker.name}`);
       volume.value = String(speaker.volume ?? 0);
       volumeValue.textContent = speaker.supportsVolume ? `${volume.value}%` : 'n/a';
       setDisabled(false);
@@ -141,7 +155,7 @@
     }
 
     previous.addEventListener('click', () => send('previous'));
-    toggle.addEventListener('click', () => send(speaker.playing ? 'pause' : 'play'));
+    toggle.addEventListener('click', () => send({ Pause: 'pause', Play: 'play', 'Move here': 'move' }[moveAction()]));
     next.addEventListener('click', () => send('next'));
     off.addEventListener('click', () => send('stop'));
     volume.addEventListener('input', () => { volumeValue.textContent = `${volume.value}%`; });
@@ -153,6 +167,7 @@
   }
 
   function showSpeakers(speakers) {
+    anyActive = speakers.some(speaker => speaker.active);
     cards = new Map();
     list.replaceChildren(...speakers.map(speaker => {
       const made = speakerCard(speaker);
@@ -176,6 +191,7 @@
   // (Spotify drops an Echo from its list once it's been quiet for a while).
   function updateSpeakers(speakers) {
     if (speakers.length === cards.size && speakers.every(speaker => cards.has(speaker.id))) {
+      anyActive = speakers.some(speaker => speaker.active);
       for (const speaker of speakers) cards.get(speaker.id).show(speaker);
     } else {
       showSpeakers(speakers);

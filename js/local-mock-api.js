@@ -20,8 +20,9 @@
   // Shared with js/site-account.js.
   const SESSION_KEY = 'besaid-backlog-session';
 
+  const mockArt = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><defs><linearGradient id="g" x2="1" y2="1"><stop stop-color="#2d7d9a"/><stop offset="1" stop-color="#d4b46a"/></linearGradient></defs><rect width="10" height="10" fill="url(#g)"/></svg>')}`;
   const mockSpeakers = [
-    { id: 'kitchen', name: 'Kitchen', type: 'Speaker', active: true, online: true, playing: true, track: 'To Zanarkand', artist: 'Nobuo Uematsu', volume: 40, supportsVolume: true },
+    { id: 'kitchen', name: 'Kitchen', type: 'Speaker', active: true, online: true, playing: true, track: 'To Zanarkand', artist: 'Nobuo Uematsu', image: mockArt, volume: 40, supportsVolume: true },
     { id: 'living-room', name: 'Living Room', type: 'Speaker', active: false, online: true, playing: false, track: '', artist: '', volume: 25, supportsVolume: true },
     { id: 'bedroom', name: 'Bedroom', type: 'Speaker', active: false, online: false, playing: false, track: '', artist: '', volume: 15, supportsVolume: true }
   ];
@@ -313,8 +314,8 @@
       if (url.searchParams.has('home-suite')) {
         if (url.searchParams.get('home-suite') === 'playlists') {
           return json(200, { configured: true, total: 4, playlists: [
-            { uri: 'spotify:playlist:mock1', name: 'Besaid Evenings', owner: 'Kiwamari', tracks: 42, image: '' },
-            { uri: 'spotify:playlist:mock2', name: 'Cooking', owner: 'Kiwamari', tracks: 118, image: '' },
+            { uri: 'spotify:playlist:mock1', name: 'Besaid Evenings', owner: 'Kiwamari', tracks: 42, image: mockArt },
+            { uri: 'spotify:playlist:mock2', name: 'Cooking', owner: 'Kiwamari', tracks: 118, image: mockArt },
             { uri: 'spotify:playlist:mock3', name: 'Final Fantasy X Soundtrack With A Long Name', owner: 'Someone Else', tracks: 91, image: '' },
             { uri: 'spotify:playlist:mock4', name: 'Sleep', owner: 'Kiwamari', tracks: null, image: '' }
           ] });
@@ -479,11 +480,17 @@
     if (method === 'POST' && body?.action === 'home-suite') {
       const speaker = mockSpeakers.find(({ id }) => id === body.speaker);
       if (body.command === 'volume') speaker.volume = body.value;
+      if (body.command === 'move') {
+        const from = mockSpeakers.find(other => other.active);
+        const { playing, track, artist, image } = from;
+        Object.assign(from, { active: false, playing: false, track: '', artist: '', image: '' });
+        Object.assign(speaker, { active: true, playing, track, artist, image });
+      }
       if (['music', 'playlist', 'play'].includes(body.command)) {
         for (const other of mockSpeakers) {
-          if (other !== speaker) Object.assign(other, { active: false, playing: false, track: '', artist: '' });
+          if (other !== speaker) Object.assign(other, { active: false, playing: false, track: '', artist: '', image: '' });
         }
-        Object.assign(speaker, { active: true, playing: true, track: body.command === 'play' ? speaker.track || 'Mock track' : `Mock track from ${body.value}`, artist: 'Mock artist' });
+        Object.assign(speaker, { active: true, playing: true, image: mockArt, track: body.command === 'play' ? speaker.track || 'Mock track' : `Mock track from ${body.value}`, artist: 'Mock artist' });
       }
       if (body.command === 'pause' || body.command === 'stop') speaker.playing = false;
       return json(200, { speakers: mockSpeakers });

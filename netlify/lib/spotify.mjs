@@ -132,6 +132,13 @@ async function spotify(token, method, path, body) {
   throw Object.assign(new Error(message), { spotifyStatus: response.status });
 }
 
+// The smallest image that's big enough. Spotify lists images largest first, and may not
+// give their sizes.
+function pickImage(images) {
+  const list = images || [];
+  return (list.filter(image => image.width >= IMAGE_WIDTH).at(-1) || list[0])?.url || '';
+}
+
 // Every device with what it's doing. Spotify plays on one device at a time, so only the
 // active one has a track.
 async function readSpeakers(token) {
@@ -151,6 +158,7 @@ async function readSpeakers(token) {
       playing: device.is_active && Boolean(player?.is_playing),
       track: item?.name || '',
       artist: (item?.artists || []).map(artist => artist.name).join(', '),
+      image: pickImage(item?.album?.images),
       volume: device.volume_percent,
       supportsVolume: device.supports_volume !== false
     };
@@ -177,18 +185,14 @@ export async function readSpotifyPlaylists(store) {
   const { items, total } = await spotify(connected.token, 'GET', `/me/playlists?limit=${MAX_PLAYLISTS}`);
   return {
     total,
-    playlists: items.filter(Boolean).map(playlist => {
-      const images = playlist.images || [];
-      return {
-        uri: playlist.uri,
-        name: playlist.name,
-        owner: playlist.owner?.display_name || '',
-        // Spotify renamed tracks to items in 2026; a playlist can have neither.
-        tracks: (playlist.items || playlist.tracks)?.total ?? null,
-        // Spotify lists images largest first, and may not give their sizes.
-        image: (images.filter(image => image.width >= IMAGE_WIDTH).at(-1) || images[0])?.url || ''
-      };
-    })
+    playlists: items.filter(Boolean).map(playlist => ({
+      uri: playlist.uri,
+      name: playlist.name,
+      owner: playlist.owner?.display_name || '',
+      // Spotify renamed tracks to items in 2026; a playlist can have neither.
+      tracks: (playlist.items || playlist.tracks)?.total ?? null,
+      image: pickImage(playlist.images)
+    }))
   };
 }
 
@@ -201,6 +205,19 @@ async function findMusic(token, query) {
   const track = tracks?.items?.[0];
   if (!track) throw invalid(`Spotify found nothing for "${query.trim()}"`);
   return { context_uri: track.album.uri, offset: { uri: track.uri } };
+}
+
+// Spotify may still report the music on the old speaker just after a move, so if it does,
+// the page is told what the move did.
+function movedTo(speakers, id) {
+  const from = speakers.find(each => each.active && each.id !== id);
+  if (!from) return speakers;
+  const { playing, track, artist, image } = from;
+  return speakers.map(each => {
+    if (each.id === id) return { ...each, active: true, playing, track, artist, image };
+    if (each === from) return { ...each, active: false, playing: false, track: '', artist: '', image: '' };
+    return each;
+  });
 }
 
 // Carries out { speaker, command, value } from the page (commands are listed at the top of
@@ -219,6 +236,12 @@ export async function sendSpotifyCommand(store, { speaker, command, value }) {
   if (command === 'play') {
     await spotify(token, 'PUT', `/me/player/play?device_id=${device}`);
     playing = true;
+  } else if (command === 'move') {
+    // Spotify's transfer keeps the track and the place in it, and leaves it playing or
+    // paused as it was.
+    await spotify(token, 'PUT', '/me/player', { device_ids: [speaker] });
+    await new Promise(resolve => setTimeout(resolve, SETTLE_MS));
+    return movedTo(await readSpeakers(token), speaker);
   } else if (command === 'music' || command === 'playlist') {
     if (command === 'playlist' && !(typeof value === 'string' && PLAYLIST_URI.test(value))) throw invalid('Invalid playlist');
     const what = command === 'music' ? await findMusic(token, value) : { context_uri: value };
