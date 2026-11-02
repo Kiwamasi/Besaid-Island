@@ -501,6 +501,7 @@
     // Fake Home Suite commands, for UI design only: just enough for the buttons to change.
     if (method === 'POST' && body?.action === 'home-suite') {
       const speaker = mockSpeakers.find(({ id }) => id === body.speaker);
+      if (speaker.asleep) return json(200, { speakers: mockSpeakers.map(each => (each === speaker ? { ...each, unconfirmed: true } : each)) });
       if (body.command === 'volume') speaker.volume = body.value;
       if (body.command === 'move') {
         const from = mockSpeakers.find(other => other.active);

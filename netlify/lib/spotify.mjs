@@ -29,6 +29,11 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const FORGET_SPEAKER_MS = 30 * DAY_MS;
 // How long to give a speaker between one way of moving the music failing and the next.
 const RETRY_MS = 1500;
+// Devices that are probably just closed when they're gone, so they aren't kept as asleep.
+const NOT_REMEMBERED = ['Computer', 'Smartphone', 'Tablet'];
+// After music is sent to a sleeping speaker, how often and how many times to look for it.
+const WAKE_CHECK_MS = 2000;
+const WAKE_CHECKS = 3;
 const REQUEST_TIMEOUT_MS = 10000;
 // An access token this close to running out is renewed rather than used.
 const TOKEN_MARGIN_MS = 60 * 1000;
@@ -142,7 +147,7 @@ async function spotify(token, method, path, body) {
   const message = response.status === 429
     ? "Spotify's request limit has been reached, so try again in a little while"
     : unreachable
-      ? `Spotify couldn't reach that speaker (error ${response.status}). It's probably asleep: say "Alexa, connect to Spotify" near it, then press Refresh.`
+      ? `Spotify couldn't reach that speaker (error ${response.status}${data?.error?.message ? `: ${data.error.message}` : ''}). It's probably asleep: say "Alexa, connect to Spotify" near it, then press Refresh.`
       : data?.error?.message || `Spotify answered HTTP ${response.status}`;
   throw Object.assign(new Error(message), { spotifyStatus: response.status });
 }
@@ -166,17 +171,17 @@ function nowPlaying(player) {
   };
 }
 
-// Notes the speakers Spotify lists now, and answers with all it has listed lately. Only
-// speakers: a phone or computer that's gone was probably closed, not asleep. It's saved
-// only if something changed, and a speaker's last sighting only once a day.
+// Notes the speakers Spotify lists now, and answers with all it has listed lately. Not
+// phones or computers (NOT_REMEMBERED). It's saved only if something changed, and a
+// speaker's last sighting only once a day.
 async function rememberSpeakers(store, devices) {
   const known = (await store.get(SPEAKERS_KEY, { type: 'json' })) || {};
   const now = Date.now();
   let changed = false;
   for (const { id, name, type } of devices) {
-    if (type !== 'Speaker' || !id) continue;
-    if (known[name]?.id === id && now - known[name].lastSeen < DAY_MS) continue;
-    known[name] = { id, lastSeen: now };
+    if (NOT_REMEMBERED.includes(type) || !id) continue;
+    if (known[name]?.id === id && known[name].type === type && now - known[name].lastSeen < DAY_MS) continue;
+    known[name] = { id, type, lastSeen: now };
     changed = true;
   }
   for (const [name, { lastSeen }] of Object.entries(known)) {
@@ -214,10 +219,10 @@ async function readSpeakers(store, token) {
     supportsVolume: device.supports_volume !== false
   }));
   const listed = new Set(devices.map(device => device.name));
-  for (const [name, { id }] of Object.entries(known)) {
+  for (const [name, { id, type }] of Object.entries(known)) {
     if (listed.has(name)) continue;
     speakers.push({
-      id, name, type: 'Speaker', active: false, online: true, asleep: true, ...nowPlaying(null), volume: null, supportsVolume: false
+      id, name, type: type || 'Speaker', active: false, online: true, asleep: true, ...nowPlaying(null), volume: null, supportsVolume: false
     });
   }
   return speakers.sort((first, second) => first.name.localeCompare(second.name));
@@ -330,10 +335,28 @@ async function moveMusic(token, speaker) {
   return player;
 }
 
+// Spotify can accept music for a sleeping speaker and then not show it waking. The page
+// mustn't call that playing, so it's told Spotify took the command and nothing more.
+function markUnconfirmed(speakers, id) {
+  return speakers.map(each => (each.id === id ? { ...each, unconfirmed: true } : each));
+}
+
+// The speakers after a command, giving a sleeping speaker it was sent to time to wake.
+async function readAfterCommand(store, token, id) {
+  await new Promise(resolve => setTimeout(resolve, SETTLE_MS));
+  let speakers = await readSpeakers(store, token);
+  for (let check = 0; check < WAKE_CHECKS && speakers.find(each => each.id === id)?.asleep; check++) {
+    await new Promise(resolve => setTimeout(resolve, WAKE_CHECK_MS));
+    speakers = await readSpeakers(store, token);
+  }
+  return speakers;
+}
+
 // Spotify may still report the music on the old speaker just after a move, or may not say
 // at all, so the page is told what the move did.
 function movedTo(speakers, id, player) {
   if (!player) return speakers;
+  if (speakers.find(each => each.id === id)?.asleep) return markUnconfirmed(speakers, id);
   return speakers.map(each => {
     if (each.id === id) return { ...each, ...nowPlaying(player), active: true, asleep: false };
     return each.active ? { ...each, ...nowPlaying(null), active: false } : each;
@@ -358,8 +381,7 @@ export async function sendSpotifyCommand(store, { speaker, command, value, track
     playing = true;
   } else if (command === 'move') {
     const player = await moveMusic(token, speaker);
-    await new Promise(resolve => setTimeout(resolve, SETTLE_MS));
-    return movedTo(await readSpeakers(store, token), speaker, player);
+    return movedTo(await readAfterCommand(store, token, speaker), speaker, player);
   } else if (command === 'music' || command === 'playlist') {
     if (command === 'playlist' && !(typeof value === 'string' && PLAYLIST_URI.test(value))) throw invalid('Invalid playlist');
     if (command === 'playlist' && track !== undefined && !(typeof track === 'string' && TRACK_URI.test(track))) throw invalid('Invalid song');
@@ -383,11 +405,11 @@ export async function sendSpotifyCommand(store, { speaker, command, value, track
     throw invalid('Invalid command');
   }
 
-  await new Promise(resolve => setTimeout(resolve, SETTLE_MS));
-  const speakers = await readSpeakers(store, token);
+  const speakers = await readAfterCommand(store, token, speaker);
   if (playing === null) return speakers;
+  if (speakers.find(each => each.id === speaker)?.asleep) return markUnconfirmed(speakers, speaker);
   return speakers.map(each => {
-    if (each.id === speaker) return { ...each, playing, active: each.active || playing, asleep: each.asleep && !playing };
+    if (each.id === speaker) return { ...each, playing, active: each.active || playing };
     return playing ? { ...each, ...nowPlaying(null), active: false } : each;
   });
 }

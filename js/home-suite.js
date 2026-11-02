@@ -5,7 +5,8 @@
 // The speakers are reached through Spotify (netlify/lib/spotify.mjs). ?home-suite answers
 // { configured, connected, playlists, speakers: [{ id, name, type, active, online, asleep,
 // playing, track, trackUri, artist, image, volume, supportsVolume }] }. asleep is a speaker
-// Spotify has listed before but not now; commands to it may well fail. playlists is whether the
+// Spotify has listed before but not now; commands to it may well fail, and unconfirmed
+// marks one where Spotify took a command but it never showed up. playlists is whether the
 // Spotify sign-in allows reading them; ?home-suite=playlists answers { total, playlists:
 // [{ uri, name, owner, tracks, image }] }. ?home-suite=tracks&playlist=uri&offset=n answers
 // one page of a playlist's songs: { restricted, total, nextOffset, tracks: [{ uri, name,
@@ -211,7 +212,8 @@
       badge.classList.toggle('is-on', speaker.online && speaker.playing);
       playing.textContent = !speaker.online
         ? 'Spotify says it refuses remote control'
-        : speaker.asleep ? 'Say "Alexa, connect to Spotify" near it, then press Refresh'
+        : speaker.unconfirmed ? "Spotify accepted this, but the speaker hasn't appeared. If you can't hear it, it didn't wake."
+          : speaker.asleep ? "Spotify can't see it right now, but you can still try playing to it"
           : speaker.track ? [speaker.track, speaker.artist].filter(Boolean).join(' · ') : 'Nothing playing';
       art.hidden = !speaker.image;
       if (speaker.image) art.src = speaker.image;
@@ -548,7 +550,9 @@
     try {
       const result = await sendCommand(id, 'playlist', openPlaylist.uri, track?.uri);
       updateSpeakers(result.speakers);
-      detailNote.textContent = `Playing ${what} on ${speakerName}.`;
+      detailNote.textContent = result.speakers.find(speaker => speaker.id === id)?.unconfirmed
+        ? `Sent ${what} to ${speakerName}, but Spotify hasn't shown it playing there.`
+        : `Playing ${what} on ${speakerName}.`;
     } catch (failure) {
       detailNote.textContent = failure.message;
     } finally {
