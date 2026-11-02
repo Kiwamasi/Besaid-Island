@@ -1,0 +1,216 @@
+/* Home Suite page. Shared colours come from css/site.css. */
+
+.suite-main {
+  padding: 1.5rem 2rem 3rem;
+}
+
+.suite-shell {
+  width: min(100%, 1300px);
+  margin: 0 auto;
+  font-family: 'IBM Plex Sans', Arial, sans-serif;
+}
+
+.suite-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.6rem 0 1rem;
+  border-bottom: 1px solid var(--site-line);
+}
+
+.suite-title {
+  color: var(--site-ink);
+  font-size: 1.8rem;
+  font-weight: 400;
+  line-height: 1.15;
+}
+
+.suite-note {
+  padding-top: 0.8rem;
+  color: var(--site-muted);
+  font-size: 0.85rem;
+}
+
+.suite-note:empty {
+  display: none;
+}
+
+.suite-button {
+  border: 1px solid var(--site-line-strong);
+  border-radius: 4px;
+  padding: 0.3rem 0.65rem;
+  background: transparent;
+  color: var(--site-ink);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.suite-button:hover {
+  border-color: var(--site-accent);
+  color: var(--site-accent);
+}
+
+.suite-button[hidden] {
+  display: none;
+}
+
+.suite-button:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.suite-button:disabled:hover {
+  border-color: var(--site-line-strong);
+  color: var(--site-ink);
+}
+
+.suite-connect {
+  margin-top: 0.9rem;
+}
+
+.suite-connect[hidden] {
+  display: none;
+}
+
+/* ---------- Play music ---------- */
+
+.suite-music {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+  max-width: 44rem;
+  margin-top: 1.25rem;
+}
+
+.suite-music[hidden] {
+  display: none;
+}
+
+.suite-music-query {
+  flex: 1 1 16rem;
+}
+
+.suite-music-speaker {
+  flex: 0 1 12rem;
+}
+
+.suite-music .form-field {
+  margin-top: 0;
+}
+
+/* The same height, as a select and a text box are otherwise a little different. */
+.suite-music input,
+.suite-music select,
+.suite-music button {
+  box-sizing: border-box;
+  height: 2.5rem;
+}
+
+/* ---------- Speakers ---------- */
+
+.suite-speakers {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 20rem), 1fr));
+  gap: 1rem;
+  margin: 1.25rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.suite-speaker {
+  border: 1px solid var(--site-line);
+  border-radius: 6px;
+  padding: 0.9rem 1rem 1rem;
+}
+
+.suite-speaker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.suite-speaker-name {
+  color: var(--site-ink);
+  font-size: 1.05rem;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.suite-badge {
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  background: var(--site-line-strong);
+  color: var(--site-muted);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.suite-badge.is-on {
+  background: var(--site-accent);
+  color: var(--site-on-accent);
+}
+
+.suite-speaker-playing {
+  margin-top: 0.35rem;
+  color: var(--site-muted);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.suite-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.85rem;
+}
+
+.suite-toggle {
+  min-width: 4rem;
+}
+
+/* Pushed to the far end, away from the buttons pressed while listening. */
+.suite-off {
+  margin-left: auto;
+}
+
+.suite-volume {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.85rem;
+  color: var(--site-muted);
+  font-size: 0.78rem;
+}
+
+.suite-volume input {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--site-accent);
+}
+
+.suite-volume-value {
+  min-width: 2.6rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.suite-error {
+  margin-top: 0.5rem;
+  color: #ef8a80;
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.suite-error:empty {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .suite-main { padding: 1.25rem 1rem 2rem; }
+}

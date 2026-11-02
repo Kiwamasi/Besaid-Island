@@ -1,6 +1,7 @@
 // Half-hourly electricity chart for the admin panel on the profile page (js/profile.js).
 // "Day by day": one UK day at a time, with buttons to step through the days that have
-// readings, a column per half hour in the trim colour. Hovering a column (or moving with
+// readings, a column per half hour in the trim colour, with shaded bands behind them
+// marking the off-peak hours. Hovering a column (or moving with
 // the arrow keys once the chart has focus) shows its time and kWh; the same numbers are
 // in a table. "Trend": every day Octopus has (up to about 500) as a line of its average
 // power in kW, with a 7-day average over it to show the ups and downs.
@@ -19,6 +20,11 @@
   const MAX_BAR = 24;
   const RADIUS = 4;
   const DAY_MS = 86400000;
+  // The tariff's off-peak hours, [from, to] in UK clock hours. Octopus's API doesn't say
+  // which hours these are, so they're written here.
+  const OFF_PEAK = [[0, 0.5], [4.5, 7.5], [13.5, 16.5], [20.5, 24]];
+  // A band narrower than this many half hours has no room for its label.
+  const OFF_PEAK_LABEL_SLOTS = 4;
   // The Trend view's smoothed line averages this many days.
   const TREND_WEEK = 7;
   // Which view was last open, kept in this browser.
@@ -74,7 +80,8 @@
     for (const [start, kwh] of day.readings) {
       const index = slotOf(start);
       const slot = slots[index];
-      slots[index] = slot ? { ...slot, kwh: slot.kwh + kwh } : { start, kwh };
+      const offPeak = OFF_PEAK.some(([from, to]) => index >= from * 2 && index < to * 2);
+      slots[index] = slot ? { ...slot, kwh: slot.kwh + kwh } : { start, kwh, offPeak };
     }
     return slots;
   }
@@ -94,6 +101,19 @@
     const step = max > 0 ? niceStep(max) : 0.1;
     const top = Math.max(step, Math.ceil(max / step) * step);
     const y = value => PLOT.top + plotHeight - (value / top) * plotHeight;
+
+    // Off-peak hours: faint bands behind the columns, there even for half hours with no
+    // reading yet, since the times don't depend on the readings.
+    for (const [from, to] of OFF_PEAK) {
+      const left = PLOT.left + from * 2 * slotWidth;
+      chart.append(svg('rect', {
+        class: 'energy-off-peak-band', x: left, y: PLOT.top, width: (to - from) * 2 * slotWidth, height: plotHeight
+      }));
+      if ((to - from) * 2 < OFF_PEAK_LABEL_SLOTS) continue;
+      const label = svg('text', { class: 'energy-axis', x: left + 4, y: PLOT.top - 6 });
+      label.textContent = 'Off-peak';
+      chart.append(label);
+    }
 
     // Gridlines and y-axis values.
     for (let value = 0; value <= top + step / 1000; value += step) {
@@ -148,6 +168,7 @@
       const end = slot.start + 30 * 60000;
       tooltip.replaceChildren(
         html('strong', 'energy-tip-value', `${kwhFormat.format(slot.kwh)} kWh`),
+        ...(slot.offPeak ? [html('span', 'energy-tip-detail', 'Off-peak')] : []),
         html('span', 'energy-tip-time', `${timeFormat.format(slot.start)}–${timeFormat.format(end)}`)
       );
       tooltip.hidden = false;
@@ -187,7 +208,7 @@
       if (!slot) continue;
       const row = html('tr');
       row.append(
-        html('td', '', timeFormat.format(slot.start)),
+        html('td', '', `${timeFormat.format(slot.start)}${slot.offPeak ? ' (off-peak)' : ''}`),
         html('td', '', kwhFormat.format(slot.kwh))
       );
       body.append(row);

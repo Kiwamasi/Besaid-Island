@@ -20,6 +20,12 @@
   // Shared with js/site-account.js.
   const SESSION_KEY = 'besaid-backlog-session';
 
+  const mockSpeakers = [
+    { id: 'kitchen', name: 'Kitchen', type: 'Speaker', active: true, online: true, playing: true, track: 'To Zanarkand', artist: 'Nobuo Uematsu', volume: 40 },
+    { id: 'living-room', name: 'Living Room', type: 'Speaker', active: false, online: true, playing: false, track: '', artist: '', volume: 25 },
+    { id: 'bedroom', name: 'Bedroom', type: 'Speaker', active: false, online: false, playing: false, track: '', artist: '', volume: 15 }
+  ];
+
   const GAMES_KEY = 'besaid-mock-backlog';
   const ACCOUNTS_KEY = 'besaid-mock-accounts';
   const SEEDED_KEY = 'besaid-mock-admin-seeded';
@@ -303,6 +309,11 @@
       // Made-up Home Mini readings in the shape of readLiveEnergy (netlify/lib/octopus.mjs):
       // a steady base load, a fridge cycling, and a kettle now and then. Worked out from
       // the time alone, so each answer carries on from the last.
+      // Fake Home Suite speakers, for UI design only.
+      if (url.searchParams.has('home-suite')) {
+        // controls: true shows the full cards, as the server will once it can send commands.
+        return json(200, { configured: true, connected: true, controls: false, speakers: mockSpeakers });
+      }
       // Fake Discord bot panel, for UI design only.
       if (url.searchParams.has('wattnick')) {
         const now = Date.now();
@@ -455,6 +466,17 @@
     if (method === 'POST' && body?.action === 'energy-settings') {
       localStorage.setItem('mock-energy-paused', String(Boolean(body.paused)));
       return json(200, { paused: Boolean(body.paused) });
+    }
+
+    // Fake Home Suite commands, for UI design only: just enough for the buttons to change.
+    if (method === 'POST' && body?.action === 'home-suite') {
+      const speaker = mockSpeakers.find(({ id }) => id === body.speaker);
+      if (body.command === 'volume') speaker.volume = body.value;
+      if (body.command === 'music') Object.assign(speaker, { playing: true, track: body.value, artist: '' });
+      if (body.command === 'play') speaker.playing = true;
+      if (body.command === 'pause') speaker.playing = false;
+      if (body.command === 'stop') Object.assign(speaker, { playing: false, track: '', artist: '' });
+      return json(200, { speaker });
     }
 
     // Fake Discord bot settings save, for UI design only: echoes what was sent.

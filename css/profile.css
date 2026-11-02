@@ -426,6 +426,10 @@
   font-variant-numeric: tabular-nums;
 }
 
+.energy-off-peak-band {
+  fill: rgba(241, 240, 235, 0.05);
+}
+
 .energy-bar {
   fill: var(--site-accent);
   transition: fill 120ms ease;

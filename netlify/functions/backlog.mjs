@@ -3,6 +3,7 @@ import { createHmac, randomBytes, scrypt as scryptCallback, timingSafeEqual } fr
 import { promisify } from 'node:util';
 import { DEBUG_LOG_KEY, recordCall, recordedStore, startRecording, takeRecording } from '../lib/debug-log.mjs';
 import { octopusConfigured, readEnergySummary, readSavedHistory, readSavedLive, setDebug, setLivePaused } from '../lib/octopus.mjs';
+import { connectSpotify, readSpotifyDevices, spotifyAuthUrl, spotifyConfigured } from '../lib/spotify.mjs';
 import { discordConfigured, readWattnickPanel, readWattnickStatus, saveWattnickSettings } from '../lib/wattnick.mjs';
 
 const STORE_NAME = 'public-game-backlog';
@@ -129,6 +130,43 @@ function sign(payload) {
   return createHmac('sha256', process.env.SESSION_SECRET)
     .update(payload)
     .digest('base64url');
+}
+
+// The state sent to Spotify when the admin connects it, so its answer can be trusted: only
+// the admin can get one, and they don't last. Signed under its own name, so it can't be
+// mistaken for a session token.
+const SPOTIFY_STATE_MS = 10 * 60 * 1000;
+function createSpotifyState() {
+  const payload = String(Date.now() + SPOTIFY_STATE_MS);
+  return `${payload}.${sign(`spotify-state:${payload}`)}`;
+}
+
+function validSpotifyState(state) {
+  const [payload, signature] = String(state).split('.');
+  if (!payload || !signature || !process.env.SESSION_SECRET) return false;
+  return safeEqual(signature, sign(`spotify-state:${payload}`)) && Number(payload) > Date.now();
+}
+
+// Spotify sends the admin's browser back here, so this answers with a redirect to the
+// Home Suite page instead of JSON. The browser brings no session, hence the state.
+async function finishSpotifyConnect(params) {
+  let result = 'failed';
+  if (validSpotifyState(params.get('state'))) {
+    if (params.has('error')) {
+      result = 'denied';
+    } else {
+      try {
+        await connectSpotify(statsStore(), params.get('code'));
+        result = 'connected';
+      } catch (error) {
+        console.error('Spotify connection failed', error);
+      }
+    }
+  }
+  return new Response(null, {
+    status: 302,
+    headers: { Location: `${ALLOWED_ORIGIN}/Besaid-Island/home-suite.html?spotify=${result}`, 'Cache-Control': 'no-store' }
+  });
 }
 
 // iat (when the session started) lets a session be told apart from a newer account
@@ -642,6 +680,11 @@ export default async (request, context) => {
   try {
     const body = ['POST', 'DELETE'].includes(request.method) ? await request.json() : null;
 
+    if (request.method === 'GET') {
+      const params = new URL(request.url).searchParams;
+      if (params.has('state') && (params.has('code') || params.has('error'))) return await finishSpotifyConnect(params);
+    }
+
     // Sent by js/site-telemetry.js from every page; no sign-in needed.
     if (request.method === 'POST' && body?.action === 'view') {
       if (!validPage(body.page)) return respond(request, 400, { error: 'Invalid page' });
@@ -827,6 +870,18 @@ export default async (request, context) => {
         return respond(request, 200, await readWattnickPanel(statsStore()));
       }
 
+      // ?home-suite: the speakers Spotify can see, for the Home Suite page (js/home-suite.js).
+      if (params.has('home-suite')) {
+        if (!session?.isAdmin) return respond(request, 403, { error: 'Only the admin can control the speakers' });
+        if (!spotifyConfigured()) return respond(request, 200, { configured: false });
+        try {
+          return respond(request, 200, { configured: true, ...(await readSpotifyDevices(statsStore())) });
+        } catch (error) {
+          console.error('Spotify request failed', error);
+          return respond(request, 502, { error: `Couldn't get the speakers from Spotify: ${error.message}` });
+        }
+      }
+
       if (params.has('users')) {
         return respond(request, 200, { users: await listUsers() });
       }
@@ -912,6 +967,19 @@ export default async (request, context) => {
       } catch (error) {
         return respond(request, 400, { error: error.message });
       }
+    }
+
+    // The Home Suite page's Connect Spotify button: answers with where to send the admin.
+    if (request.method === 'POST' && body?.action === 'spotify-connect') {
+      if (!session.isAdmin) return respond(request, 403, { error: 'Only the admin can control the speakers' });
+      if (!spotifyConfigured()) return respond(request, 503, { error: "Spotify isn't set up yet" });
+      return respond(request, 200, { url: spotifyAuthUrl(createSpotifyState()) });
+    }
+
+    // Sent by the Home Suite page's controls, which aren't connected to Spotify yet.
+    if (request.method === 'POST' && body?.action === 'home-suite') {
+      if (!session.isAdmin) return respond(request, 403, { error: 'Only the admin can control the speakers' });
+      return respond(request, 503, { error: "The speaker controls aren't connected yet" });
     }
 
     if (request.method === 'POST' && body?.action === 'clear-errors') {

@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#1d201e">
+  <title>Home Suite | Besaid Island</title>
+  <link rel="icon" href="assets/favicon.ico" type="image/x-icon">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Marcellus&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/site.css">
+  <link rel="stylesheet" href="css/home-suite.css">
+</head>
+<body>
+  <header class="site-header"></header>
+  <script src="js/site-header.js"></script>
+  <script src="js/site-config.js"></script>
+  <script src="js/local-mock-api.js"></script>
+  <script src="js/site-account.js"></script>
+  <script src="js/site-telemetry.js"></script>
+
+  <main class="suite-main">
+    <div class="suite-shell">
+      <div class="suite-head">
+        <h1 class="suite-title">Home Suite</h1>
+        <button class="suite-button" type="button" id="suiteRefresh" hidden>Refresh</button>
+      </div>
+      <p class="suite-note" id="suiteNote" role="status">Loading…</p>
+      <button class="button-primary suite-connect" type="button" id="suiteConnect" hidden>Connect Spotify</button>
+
+      <form class="suite-music" id="suiteMusic" hidden>
+        <label class="form-field suite-music-query">
+          <span>Play music</span>
+          <input type="text" id="suiteMusicQuery" maxlength="200" placeholder="Song, artist or playlist" autocomplete="off" required>
+        </label>
+        <label class="form-field suite-music-speaker">
+          <span>On</span>
+          <select id="suiteMusicSpeaker"></select>
+        </label>
+        <button class="button-primary" type="submit" id="suiteMusicPlay">Play</button>
+      </form>
+      <p class="suite-error" id="suiteMusicError" role="alert"></p>
+
+      <ul class="suite-speakers" id="suiteSpeakers" aria-label="Speakers"></ul>
+    </div>
+  </main>
+
+  <script src="js/home-suite.js"></script>
+</body>
+</html>
