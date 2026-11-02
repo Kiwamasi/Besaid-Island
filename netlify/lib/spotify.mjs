@@ -245,13 +245,21 @@ export async function readSpotifySpeakers(store) {
 export async function readSpotifyPlaylists(store) {
   const connected = await connection(store);
   if (!connected) throw invalid("Spotify isn't connected");
-  const { items, total } = await spotify(connected.token, 'GET', `/me/playlists?limit=${MAX_PLAYLISTS}`);
+  const [{ items, total }, me] = await Promise.all([
+    spotify(connected.token, 'GET', `/me/playlists?limit=${MAX_PLAYLISTS}`),
+    // Only for telling owned playlists from followed ones, so the list still shows without it.
+    spotify(connected.token, 'GET', '/me').catch(error => {
+      console.error('Spotify profile failed', error);
+      return null;
+    })
+  ]);
   return {
     total,
     playlists: items.filter(Boolean).map(playlist => ({
       uri: playlist.uri,
       name: playlist.name,
       owner: playlist.owner?.display_name || '',
+      owned: me?.id ? playlist.owner?.id === me.id : null,
       // Spotify renamed tracks to items in 2026; a playlist can have neither.
       tracks: (playlist.items || playlist.tracks)?.total ?? null,
       image: pickImage(playlist.images)
@@ -286,6 +294,7 @@ export async function readSpotifyPlaylistTracks(store, uri, offset) {
         artist: (item.artists || []).map(artist => artist.name).join(', ') || item.show?.name || '',
         album: item.album?.name || '',
         duration: item.duration_ms,
+        added: entry.added_at || '',
         playable: !entry.is_local && !item.is_local && TRACK_URI.test(item.uri || '')
       };
     });

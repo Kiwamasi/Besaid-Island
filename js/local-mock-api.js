@@ -330,16 +330,17 @@
               artist: 'Mock artist',
               album: 'Mock album',
               duration: 150000 + (offset + index) * 7000,
+              added: new Date(Date.UTC(2024, 0, 1 + offset + index)).toISOString(),
               playable: true
             }))
           });
         }
         if (url.searchParams.get('home-suite') === 'playlists') {
           return json(200, { configured: true, total: 4, playlists: [
-            { uri: 'spotify:playlist:mock1', name: 'Besaid Evenings', owner: 'Kiwamari', tracks: 42, image: mockArt },
-            { uri: 'spotify:playlist:mock2', name: 'Cooking', owner: 'Kiwamari', tracks: 118, image: mockArt },
-            { uri: 'spotify:playlist:mock3', name: 'Final Fantasy X Soundtrack With A Long Name', owner: 'Someone Else', tracks: 91, image: '' },
-            { uri: 'spotify:playlist:mock4', name: 'Sleep', owner: 'Kiwamari', tracks: null, image: '' }
+            { uri: 'spotify:playlist:mock1', name: 'Besaid Evenings', owner: 'Kiwamari', owned: true, tracks: 42, image: mockArt },
+            { uri: 'spotify:playlist:mock2', name: 'Cooking', owner: 'Kiwamari', owned: true, tracks: 118, image: mockArt },
+            { uri: 'spotify:playlist:mock3', name: 'Final Fantasy X Soundtrack With A Long Name', owner: 'Someone Else', owned: false, tracks: 91, image: '' },
+            { uri: 'spotify:playlist:mock4', name: 'Sleep', owner: 'Kiwamari', owned: true, tracks: null, image: '' }
           ] });
         }
         return json(200, { configured: true, connected: true, playlists: true, speakers: mockSpeakers });

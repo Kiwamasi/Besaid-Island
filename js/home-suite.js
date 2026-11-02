@@ -8,9 +8,10 @@
 // Spotify has listed before but not now; commands to it may well fail, and unconfirmed
 // marks one where Spotify took a command but it never showed up. playlists is whether the
 // Spotify sign-in allows reading them; ?home-suite=playlists answers { total, playlists:
-// [{ uri, name, owner, tracks, image }] }. ?home-suite=tracks&playlist=uri&offset=n answers
-// one page of a playlist's songs: { restricted, total, nextOffset, tracks: [{ uri, name,
-// artist, album, duration, playable }] }.
+// [{ uri, name, owner, owned, tracks, image }] }; owned is null if Spotify wouldn't say whose
+// account this is. ?home-suite=tracks&playlist=uri&offset=n answers one page of a playlist's
+// songs: { restricted, total, nextOffset, tracks: [{ uri, name, artist, album, duration,
+// added, playable }] }.
 //
 // POST home-suite takes { speaker, command, value, track } and answers with { speakers },
 // all of them, as starting music on one stops it on another. Commands: play, pause, stop,
@@ -20,7 +21,9 @@
 // requests down: they're asked for when the page opens and by Refresh.
 //
 // Choosing a playlist fades the others away, glides its picture into place and lists its
-// songs, which then start playing only when one is pressed.
+// songs, which then start playing only when one is pressed. The songs start newest added
+// first, and each column's arrow goes one way, then the other, then neither, which is the
+// playlist's own order. Spotify still plays in the playlist's order, whatever's showing.
 (() => {
   const account = window.siteAccount;
   const note = document.getElementById('suiteNote');
@@ -36,7 +39,8 @@
   const musicError = document.getElementById('suiteMusicError');
   const playlists = document.getElementById('suitePlaylists');
   const playlistsView = document.getElementById('suitePlaylistsView');
-  const playlistsTitle = document.getElementById('suitePlaylistsTitle');
+  const playlistsHead = document.getElementById('suitePlaylistsHead');
+  const playlistFilter = document.getElementById('suitePlaylistFilter');
   const playlistsNote = document.getElementById('suitePlaylistsNote');
   const playlistList = document.getElementById('suitePlaylistList');
   const detail = document.getElementById('suiteDetail');
@@ -47,6 +51,7 @@
   const detailSummary = document.getElementById('suiteDetailSummary');
   const detailNote = document.getElementById('suiteDetailNote');
   const playAll = document.getElementById('suitePlayAll');
+  const trackHead = document.getElementById('suiteTrackHead');
   const tracksList = document.getElementById('suiteTracks');
   const tracksNote = document.getElementById('suiteTracksNote');
 
@@ -58,8 +63,20 @@
     pause: 'M6 4h4v16H6zM14 4h4v16h-4z',
     play: 'M7 4.5v15l13-7.5z',
     power: 'M13 3h-2v10h2zm4.83 2.17-1.42 1.42A6.92 6.92 0 0 1 19 12a7 7 0 1 1-11.43-5.41L6.17 5.17A8.93 8.93 0 0 0 3 12a9 9 0 1 0 14.83-6.83z',
-    previous: 'M6 5h2v14H6zM20 5v14L9 12z'
+    previous: 'M6 5h2v14H6zM20 5v14L9 12z',
+    sortAsc: 'M12 7l-6 8h12z',
+    sortDesc: 'M12 17l6-8H6z',
+    sortNone: 'M12 4l-5 6.5h10zM12 20l5-6.5H7z'
   };
+  // The columns songs can sort by. first is the way a column sorts on its first press.
+  const TRACK_SORTS = {
+    name: { label: 'Title', first: 'asc', value: track => track.name },
+    artist: { label: 'Artist', first: 'asc', value: track => track.artist },
+    album: { label: 'Album', first: 'asc', value: track => track.album },
+    added: { label: 'Added', first: 'desc', value: track => track.added },
+    duration: { label: 'Length', first: 'desc', value: track => track.duration }
+  };
+  const addedFormat = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
   // A very long playlist stops here rather than spending dozens of requests on it.
   const MAX_TRACKS = 1000;
   // How many of the first songs ease in one after another, as more wouldn't be seen.
@@ -74,6 +91,11 @@
   // The song playing now, marked in the open playlist's list.
   let currentTrackUri = '';
   let playlistsLoaded = false;
+  let playlistsTotal = 0;
+  // 'all', 'owned' or 'followed'.
+  let shownPlaylists = 'all';
+  // How the songs are sorted: key is a TRACK_SORTS key, or null for the playlist's own order.
+  let trackSort = { key: 'added', direction: 'desc' };
   // The playlist open now and the tile it was opened from. changingView stops a second
   // click starting while one change of view is still animating.
   let openPlaylist = null;
@@ -342,8 +364,28 @@
     tile.append(image, html('span', 'suite-playlist-name', playlist.name), html('span', 'suite-playlist-detail', details.join(' · ')));
     tile.addEventListener('click', () => showPlaylist(playlist, tile));
     const item = html('li');
+    item.dataset.owned = String(playlist.owned);
     item.append(tile);
     return item;
+  }
+
+  function visiblePlaylists() {
+    return [...playlistList.children].filter(item => !item.hidden);
+  }
+
+  function filterPlaylists() {
+    for (const item of playlistList.children) {
+      item.hidden = shownPlaylists !== 'all' && item.dataset.owned !== String(shownPlaylists === 'owned');
+    }
+    for (const button of playlistFilter.querySelectorAll('button')) {
+      button.setAttribute('aria-pressed', String(button.dataset.filter === shownPlaylists));
+    }
+    const count = playlistList.children.length;
+    // The filter only knows about the playlists that were read, so it says so.
+    const more = playlistsTotal > count ? `Showing the first ${count} of ${playlistsTotal}.` : '';
+    playlistsNote.textContent = !count
+      ? 'No playlists on this Spotify account.'
+      : !visiblePlaylists().length ? `No ${shownPlaylists} playlists here. ${more}`.trim() : more;
   }
 
   async function loadPlaylists() {
@@ -356,9 +398,12 @@
       if (shownVersion !== version) return;
       playlistList.replaceChildren(...answer.playlists.map(playlistTile));
       playlistsLoaded = true;
-      playlistsNote.textContent = !answer.playlists.length
-        ? 'No playlists on this Spotify account.'
-        : answer.total > answer.playlists.length ? `Showing the first ${answer.playlists.length} of ${answer.total}.` : '';
+      playlistsTotal = answer.total;
+      // Without knowing whose account this is, there's nothing to filter by.
+      const canFilter = answer.playlists.some(playlist => playlist.owned !== null);
+      playlistFilter.hidden = !canFilter;
+      if (!canFilter) shownPlaylists = 'all';
+      filterPlaylists();
     } catch (error) {
       if (shownVersion === version) playlistsNote.textContent = error.message;
     }
@@ -371,7 +416,67 @@
     return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
   }
 
-  function trackRow(track, number) {
+  function addedDate(added) {
+    const date = new Date(added);
+    return added && !Number.isNaN(date.getTime()) ? addedFormat.format(date) : '';
+  }
+
+  function sortButton(key) {
+    const button = html('button', 'suite-sort');
+    button.type = 'button';
+    button.dataset.sort = key;
+    button.addEventListener('click', () => {
+      // One way, the other way, then neither.
+      const { first } = TRACK_SORTS[key];
+      const second = first === 'asc' ? 'desc' : 'asc';
+      if (trackSort.key !== key) trackSort = { key, direction: first };
+      else if (trackSort.direction === first) trackSort = { key, direction: second };
+      else trackSort = { key: null, direction: null };
+      showTrackSort();
+      renderTracks();
+    });
+    return button;
+  }
+
+  function sortGroup(keys, className = '') {
+    const group = html('div', `suite-sort-group ${className}`.trim());
+    group.append(...keys.map(sortButton));
+    return group;
+  }
+
+  function showTrackSort() {
+    for (const button of trackHead.querySelectorAll('.suite-sort')) {
+      const { label } = TRACK_SORTS[button.dataset.sort];
+      const sorted = trackSort.key === button.dataset.sort;
+      const direction = sorted ? trackSort.direction : null;
+      button.classList.toggle('is-sorted', sorted);
+      button.replaceChildren(label, icon(direction === 'asc' ? 'sortAsc' : direction === 'desc' ? 'sortDesc' : 'sortNone'));
+      const state = direction === 'asc' ? 'ascending' : direction === 'desc' ? 'descending' : 'not sorted';
+      button.setAttribute('aria-label', `Sort by ${label}, ${state}`);
+    }
+  }
+
+  // Compares by the chosen column. A song with nothing to compare goes last either way,
+  // and ties stay in the playlist's order.
+  function compareTracks(first, second) {
+    if (!trackSort.key) return first.number - second.number;
+    const { value } = TRACK_SORTS[trackSort.key];
+    const [left, right] = [value(first), value(second)];
+    const leftEmpty = left === '' || left === null || left === undefined;
+    const rightEmpty = right === '' || right === null || right === undefined;
+    if (leftEmpty !== rightEmpty) return leftEmpty ? 1 : -1;
+    if (leftEmpty) return first.number - second.number;
+    const order = typeof left === 'number' ? left - right : String(left).localeCompare(String(right), undefined, { sensitivity: 'base', numeric: true });
+    return (trackSort.direction === 'desc' ? -order : order) || first.number - second.number;
+  }
+
+  function renderTracks() {
+    const saved = openPlaylist && savedTracks.get(openPlaylist.uri);
+    tracksList.replaceChildren(...(saved ? [...saved.tracks].sort(compareTracks).map(trackRow) : []));
+    markCurrentTrack();
+  }
+
+  function trackRow(track) {
     const button = html('button', 'suite-track');
     button.type = 'button';
     button.dataset.uri = track.uri;
@@ -380,9 +485,10 @@
     const title = html('span');
     title.append(html('span', 'suite-track-name', track.name), html('span', 'suite-track-artist', track.artist));
     button.append(
-      html('span', 'suite-track-number', String(number)),
+      html('span', 'suite-track-number', String(track.number)),
       title,
       html('span', 'suite-track-album', track.album),
+      html('span', 'suite-track-added', addedDate(track.added)),
       html('span', 'suite-track-time', duration(track.duration))
     );
     button.setAttribute('aria-label', `Play ${track.name}${track.artist ? ` by ${track.artist}` : ''}`);
@@ -409,48 +515,55 @@
     });
   }
 
-  function addRows(tracks, firstNumber) {
-    tracksList.append(...tracks.map((track, index) => trackRow(track, firstNumber + index)));
-    markCurrentTrack();
-  }
-
   function showTracksSummary(playlist, saved) {
     const count = saved.total ?? playlist.tracks;
     detailSummary.textContent = [playlist.owner, songCount(count)].filter(Boolean).join(' · ');
   }
 
-  // Reads the songs a page at a time, listing each page as it comes, so a long playlist
-  // shows straight away and the rest arrives below it.
+  // Reads the songs a page at a time. In the playlist's own order each page is listed as
+  // it comes, so a long playlist shows straight away and the rest arrives below it. Sorted,
+  // the list waits for all of them: the newest are usually on the last page, and rows
+  // shifting about under the pointer could start the wrong song.
   async function loadTracks(playlist, shownDetail) {
     let saved = savedTracks.get(playlist.uri);
     if (!saved) {
       saved = { tracks: [], total: null, nextOffset: 0, restricted: false };
       savedTracks.set(playlist.uri, saved);
     }
-    addRows(saved.tracks, 1);
+    const complete = () => saved.nextOffset === null || saved.tracks.length >= MAX_TRACKS;
+    const alreadyRead = complete();
+    if (alreadyRead || !trackSort.key) renderTracks();
     showTracksSummary(playlist, saved);
+    trackHead.hidden = saved.restricted;
     try {
-      while (saved.nextOffset !== null && saved.tracks.length < MAX_TRACKS) {
-        tracksNote.textContent = 'Loading songs…';
+      while (!complete()) {
+        tracksNote.textContent = saved.total ? `Loading songs… ${saved.tracks.length} of ${saved.total}` : 'Loading songs…';
         const query = new URLSearchParams({ 'home-suite': 'tracks', playlist: playlist.uri, offset: String(saved.nextOffset) });
         const page = await account.request('GET', null, `?${query}`);
         if (shownDetail !== detailVersion) return;
         const firstNumber = saved.tracks.length + 1;
-        const firstPage = firstNumber === 1;
-        saved.tracks.push(...page.tracks);
+        saved.tracks.push(...page.tracks.map((track, index) => ({ ...track, number: firstNumber + index })));
         saved.total = page.total;
         saved.nextOffset = page.nextOffset;
         saved.restricted = Boolean(page.restricted);
-        addRows(page.tracks, firstNumber);
+        trackHead.hidden = saved.restricted;
         showTracksSummary(playlist, saved);
-        if (firstPage && !detail.hidden) staggerRows();
+        if (!trackSort.key) renderTracks();
+        if (!trackSort.key && firstNumber === 1 && !detail.hidden) staggerRows();
+      }
+      if (!alreadyRead && trackSort.key) {
+        renderTracks();
+        if (!detail.hidden) staggerRows();
       }
       tracksNote.textContent = saved.restricted
         ? "Spotify only lists the songs in playlists you own or collaborate on, but you can still play this one."
-        : saved.nextOffset !== null ? `Showing the first ${saved.tracks.length} songs.`
+        : saved.nextOffset !== null ? `Showing the first ${saved.tracks.length} songs, so newer ones may be missing.`
           : saved.tracks.length ? '' : 'There are no songs in this playlist.';
     } catch (error) {
-      if (shownDetail === detailVersion) tracksNote.textContent = error.message;
+      if (shownDetail !== detailVersion) return;
+      // Whatever arrived before it failed is still worth showing.
+      renderTracks();
+      tracksNote.textContent = error.message;
     }
   }
 
@@ -471,7 +584,7 @@
     loadTracks(playlist, shownDetail);
 
     const chosenItem = tile.parentElement;
-    const others = [playlistsTitle, playlistsNote, ...[...playlistList.children].filter(item => item !== chosenItem)];
+    const others = [playlistsHead, playlistsNote, ...visiblePlaylists().filter(item => item !== chosenItem)];
     const fades = others.map(element => animate(element, [
       { opacity: 1, transform: 'none' },
       { opacity: 0, transform: 'scale(0.96)' }
@@ -523,7 +636,7 @@
     leaving?.cancel();
     playlistsView.hidden = false;
     window.scrollTo(0, scrollBeforeOpen);
-    [playlistsTitle, playlistsNote, ...playlistList.children].forEach((element, index) => {
+    [playlistsHead, playlistsNote, ...visiblePlaylists()].forEach((element, index) => {
       animate(element, [{ opacity: 0, transform: 'scale(0.97)' }, { opacity: 1, transform: 'none' }], {
         duration: 260, delay: Math.min(index * 14, 160), easing: 'ease-out', fill: 'backwards'
       });
@@ -635,6 +748,23 @@
       connect.disabled = false;
     }
   });
+
+  playlistFilter.addEventListener('click', event => {
+    const button = event.target.closest('button');
+    if (!button) return;
+    shownPlaylists = button.dataset.filter;
+    filterPlaylists();
+  });
+
+  // Empty cells keep the arrows above their columns. Title and Artist share one.
+  trackHead.append(
+    html('span'),
+    sortGroup(['name', 'artist']),
+    sortGroup(['album']),
+    sortGroup(['added'], 'suite-sort-end'),
+    sortGroup(['duration'], 'suite-sort-end')
+  );
+  showTrackSort();
 
   back.prepend(icon('back'));
   back.addEventListener('click', closePlaylist);

@@ -53,7 +53,14 @@
 
           <div class="suite-playlists" id="suitePlaylists" hidden>
             <div id="suitePlaylistsView">
-              <h2 class="suite-section-title" id="suitePlaylistsTitle">Playlists</h2>
+              <div class="suite-playlists-head" id="suitePlaylistsHead">
+                <h2 class="suite-section-title" id="suitePlaylistsTitle">Playlists</h2>
+                <div class="suite-filter" id="suitePlaylistFilter" role="group" aria-label="Show playlists" hidden>
+                  <button type="button" data-filter="all" aria-pressed="true">All</button>
+                  <button type="button" data-filter="owned" aria-pressed="false">Owned</button>
+                  <button type="button" data-filter="followed" aria-pressed="false">Followed</button>
+                </div>
+              </div>
               <p class="suite-note" id="suitePlaylistsNote" role="status"></p>
               <ul class="suite-playlist-list" id="suitePlaylistList" aria-labelledby="suitePlaylistsTitle"></ul>
             </div>
@@ -69,6 +76,7 @@
                   <p class="suite-note" id="suiteDetailNote" role="status"></p>
                 </div>
               </div>
+              <div class="suite-track-head" id="suiteTrackHead" role="group" aria-label="Sort songs"></div>
               <ol class="suite-tracks" id="suiteTracks" aria-labelledby="suiteDetailName"></ol>
               <p class="suite-note" id="suiteTracksNote" role="status"></p>
             </div>
