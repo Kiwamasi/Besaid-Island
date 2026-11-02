@@ -11,6 +11,9 @@
 //   AUTH_KEY  { refreshToken, accessToken, expires, scope }. The access token lasts an
 //             hour and is reused until then. scope is what the admin agreed to: a sign-in
 //             from before a permission was added lacks it, and has to be done again.
+//   SPEAKERS_KEY  { name: { id, lastSeen } }: speakers Spotify has listed. An Echo drops off
+//             Spotify's list when it goes to sleep (after about 10 minutes quiet) or after
+//             a failed command, so the page shows these as asleep instead of losing them.
 
 import { recordCall } from './debug-log.mjs';
 
@@ -20,6 +23,12 @@ const REDIRECT_URI = 'https://besaidisland.netlify.app/.netlify/functions/backlo
 const PLAYLIST_SCOPES = ['playlist-read-private', 'playlist-read-collaborative'];
 const SCOPES = ['user-read-playback-state', 'user-modify-playback-state', ...PLAYLIST_SCOPES].join(' ');
 const AUTH_KEY = 'spotify-auth';
+const SPEAKERS_KEY = 'spotify-speakers';
+const DAY_MS = 24 * 60 * 60 * 1000;
+// A speaker not seen for this long has probably gone for good.
+const FORGET_SPEAKER_MS = 30 * DAY_MS;
+// How long to give a speaker between one way of moving the music failing and the next.
+const RETRY_MS = 1500;
 const REQUEST_TIMEOUT_MS = 10000;
 // An access token this close to running out is renewed rather than used.
 const TOKEN_MARGIN_MS = 60 * 1000;
@@ -29,6 +38,9 @@ const MAX_PLAYLISTS = 50;
 const MAX_MUSIC_QUERY = 200;
 const SPEAKER_ID = /^[\w-]{1,100}$/;
 const PLAYLIST_URI = /^spotify:playlist:[A-Za-z0-9]{1,64}$/;
+const TRACK_URI = /^spotify:(track|episode):[A-Za-z0-9]{1,64}$/;
+// Spotify's largest page of a playlist's songs.
+const TRACKS_PAGE = 50;
 // Thumbnails are shown about this wide, so a bigger image would be wasted.
 const IMAGE_WIDTH = 150;
 
@@ -124,10 +136,13 @@ async function spotify(token, method, path, body) {
   // playing when nothing is.
   const data = await response.json().catch(() => null);
   if (response.ok) return data;
+  // A command Spotify couldn't pass on to a speaker comes back as a 404 or a bare "Server
+  // error", most often because an Echo is asleep.
+  const unreachable = method !== 'GET' && path.startsWith('/me/player') && (response.status === 404 || response.status >= 500);
   const message = response.status === 429
     ? "Spotify's request limit has been reached, so try again in a little while"
-    : response.status === 404 && path.startsWith('/me/player')
-      ? "Spotify can't reach that speaker right now. Press Refresh, and if it's gone, play something on it from the Spotify app"
+    : unreachable
+      ? `Spotify couldn't reach that speaker (error ${response.status}). It's probably asleep: say "Alexa, connect to Spotify" near it, then press Refresh.`
       : data?.error?.message || `Spotify answered HTTP ${response.status}`;
   throw Object.assign(new Error(message), { spotifyStatus: response.status });
 }
@@ -139,30 +154,73 @@ function pickImage(images) {
   return (list.filter(image => image.width >= IMAGE_WIDTH).at(-1) || list[0])?.url || '';
 }
 
-// Every device with what it's doing. Spotify plays on one device at a time, so only the
-// active one has a track.
-async function readSpeakers(token) {
+// The parts of a speaker's answer that say what it's playing. Nothing, for no player.
+function nowPlaying(player) {
+  const item = player?.item;
+  return {
+    playing: Boolean(player?.is_playing),
+    track: item?.name || '',
+    trackUri: item?.uri || '',
+    artist: (item?.artists || []).map(artist => artist.name).join(', '),
+    image: pickImage(item?.album?.images)
+  };
+}
+
+// Notes the speakers Spotify lists now, and answers with all it has listed lately. Only
+// speakers: a phone or computer that's gone was probably closed, not asleep. It's saved
+// only if something changed, and a speaker's last sighting only once a day.
+async function rememberSpeakers(store, devices) {
+  const known = (await store.get(SPEAKERS_KEY, { type: 'json' })) || {};
+  const now = Date.now();
+  let changed = false;
+  for (const { id, name, type } of devices) {
+    if (type !== 'Speaker' || !id) continue;
+    if (known[name]?.id === id && now - known[name].lastSeen < DAY_MS) continue;
+    known[name] = { id, lastSeen: now };
+    changed = true;
+  }
+  for (const [name, { lastSeen }] of Object.entries(known)) {
+    if (now - lastSeen < FORGET_SPEAKER_MS) continue;
+    delete known[name];
+    changed = true;
+  }
+  if (changed) await store.setJSON(SPEAKERS_KEY, known);
+  return known;
+}
+
+// Every device with what it's doing, and the speakers that are asleep, in name order so
+// a card doesn't jump about as its speaker comes and goes. Spotify plays on one device at
+// a time, so only the active one has a track. What's playing is left out if Spotify can't
+// say, which has been seen just after music moves to an Echo: the speakers still show.
+async function readSpeakers(store, token) {
   const [{ devices }, player] = await Promise.all([
     spotify(token, 'GET', '/me/player/devices'),
-    spotify(token, 'GET', '/me/player')
+    spotify(token, 'GET', '/me/player').catch(error => {
+      console.error('Spotify playback state failed', error);
+      return null;
+    })
   ]);
-  return devices.map(device => {
-    const item = device.is_active ? player?.item : null;
-    return {
-      id: device.id,
-      name: device.name,
-      type: device.type,
-      active: device.is_active,
-      // Spotify refuses commands to a restricted device.
-      online: !device.is_restricted,
-      playing: device.is_active && Boolean(player?.is_playing),
-      track: item?.name || '',
-      artist: (item?.artists || []).map(artist => artist.name).join(', '),
-      image: pickImage(item?.album?.images),
-      volume: device.volume_percent,
-      supportsVolume: device.supports_volume !== false
-    };
-  });
+  const known = await rememberSpeakers(store, devices);
+  const speakers = devices.map(device => ({
+    id: device.id,
+    name: device.name,
+    type: device.type,
+    active: device.is_active,
+    // Spotify refuses commands to a restricted device.
+    online: !device.is_restricted,
+    asleep: false,
+    ...nowPlaying(device.is_active ? player : null),
+    volume: device.volume_percent,
+    supportsVolume: device.supports_volume !== false
+  }));
+  const listed = new Set(devices.map(device => device.name));
+  for (const [name, { id }] of Object.entries(known)) {
+    if (listed.has(name)) continue;
+    speakers.push({
+      id, name, type: 'Speaker', active: false, online: true, asleep: true, ...nowPlaying(null), volume: null, supportsVolume: false
+    });
+  }
+  return speakers.sort((first, second) => first.name.localeCompare(second.name));
 }
 
 // The answer to ?home-suite.
@@ -172,7 +230,7 @@ export async function readSpotifySpeakers(store) {
   return {
     connected: true,
     playlists: PLAYLIST_SCOPES.every(scope => connected.scope.split(' ').includes(scope)),
-    speakers: await readSpeakers(connected.token)
+    speakers: await readSpeakers(store, connected.token)
   };
 }
 
@@ -196,6 +254,39 @@ export async function readSpotifyPlaylists(store) {
   };
 }
 
+// The answer to ?home-suite=tracks: one page of a playlist's songs. Spotify only lists them
+// for playlists the admin owns or collaborates on and answers 403 for the rest, which can
+// still be played, so that's not an error here.
+export async function readSpotifyPlaylistTracks(store, uri, offset) {
+  if (typeof uri !== 'string' || !PLAYLIST_URI.test(uri)) throw invalid('Invalid playlist');
+  if (!Number.isInteger(offset) || offset < 0) throw invalid('Invalid offset');
+  const connected = await connection(store);
+  if (!connected) throw invalid("Spotify isn't connected");
+  let page;
+  try {
+    page = await spotify(connected.token, 'GET', `/playlists/${uri.split(':')[2]}/items?limit=${TRACKS_PAGE}&offset=${offset}`);
+  } catch (error) {
+    if (error.spotifyStatus !== 403) throw error;
+    return { restricted: true, total: null, nextOffset: null, tracks: [] };
+  }
+  const tracks = page.items
+    // A song since removed from Spotify can leave an empty entry.
+    .filter(entry => entry?.item || entry?.track)
+    .map(entry => {
+      const item = entry.item || entry.track;
+      return {
+        uri: item.uri || '',
+        name: item.name || 'Unknown',
+        // A playlist can hold podcast episodes, which have a show instead of artists.
+        artist: (item.artists || []).map(artist => artist.name).join(', ') || item.show?.name || '',
+        album: item.album?.name || '',
+        duration: item.duration_ms,
+        playable: !entry.is_local && !item.is_local && TRACK_URI.test(item.uri || '')
+      };
+    });
+  return { restricted: false, total: page.total, nextOffset: page.next ? offset + TRACKS_PAGE : null, tracks };
+}
+
 // What to start for a music search: the best match's album from that track, so the music
 // carries on afterwards rather than stopping after one song.
 async function findMusic(token, query) {
@@ -207,23 +298,52 @@ async function findMusic(token, query) {
   return { context_uri: track.album.uri, offset: { uri: track.uri } };
 }
 
-// Spotify may still report the music on the old speaker just after a move, so if it does,
-// the page is told what the move did.
-function movedTo(speakers, id) {
-  const from = speakers.find(each => each.active && each.id !== id);
-  if (!from) return speakers;
-  const { playing, track, artist, image } = from;
+// What to send to start what's playing again on another speaker, at the same place. A
+// position in the context works only for albums and playlists: anything else (liked
+// songs, say) continues from the song alone.
+function resumeHere({ context, item, progress_ms: position }) {
+  const inContext = ['album', 'playlist'].includes(context?.type);
+  return {
+    ...(inContext ? { context_uri: context.uri, offset: { uri: item.uri } } : { uris: [item.uri] }),
+    position_ms: position || 0
+  };
+}
+
+// Moves the music to a speaker, keeping the place in the song, and answers with what was
+// playing. Spotify's transfer is the obvious call, but an Echo often answers it with a
+// bare 500, and a failed one can knock the Echo off Spotify's list altogether. So music
+// that's playing is started on the new speaker directly, and transfer is the fallback.
+// Paused music goes straight to transfer, as starting it would make a noise.
+async function moveMusic(token, speaker) {
+  const player = await spotify(token, 'GET', '/me/player').catch(() => null);
+  if (player?.is_playing && player.item?.uri) {
+    try {
+      await spotify(token, 'PUT', `/me/player/play?device_id=${encodeURIComponent(speaker)}`, resumeHere(player));
+      return player;
+    } catch (error) {
+      if (error.spotifyStatus === 429) throw error;
+      console.error('Spotify play on the new speaker failed, trying transfer', error);
+      await new Promise(resolve => setTimeout(resolve, RETRY_MS));
+    }
+  }
+  await spotify(token, 'PUT', '/me/player', { device_ids: [speaker] });
+  return player;
+}
+
+// Spotify may still report the music on the old speaker just after a move, or may not say
+// at all, so the page is told what the move did.
+function movedTo(speakers, id, player) {
+  if (!player) return speakers;
   return speakers.map(each => {
-    if (each.id === id) return { ...each, active: true, playing, track, artist, image };
-    if (each === from) return { ...each, active: false, playing: false, track: '', artist: '', image: '' };
-    return each;
+    if (each.id === id) return { ...each, ...nowPlaying(player), active: true, asleep: false };
+    return each.active ? { ...each, ...nowPlaying(null), active: false } : each;
   });
 }
 
 // Carries out { speaker, command, value } from the page (commands are listed at the top of
 // js/home-suite.js) and answers with all the speakers: starting music on one stops it on
 // whichever was playing.
-export async function sendSpotifyCommand(store, { speaker, command, value }) {
+export async function sendSpotifyCommand(store, { speaker, command, value, track }) {
   if (typeof speaker !== 'string' || !SPEAKER_ID.test(speaker)) throw invalid('Invalid speaker');
   const connected = await connection(store);
   if (!connected) throw invalid("Spotify isn't connected");
@@ -237,14 +357,15 @@ export async function sendSpotifyCommand(store, { speaker, command, value }) {
     await spotify(token, 'PUT', `/me/player/play?device_id=${device}`);
     playing = true;
   } else if (command === 'move') {
-    // Spotify's transfer keeps the track and the place in it, and leaves it playing or
-    // paused as it was.
-    await spotify(token, 'PUT', '/me/player', { device_ids: [speaker] });
+    const player = await moveMusic(token, speaker);
     await new Promise(resolve => setTimeout(resolve, SETTLE_MS));
-    return movedTo(await readSpeakers(token), speaker);
+    return movedTo(await readSpeakers(store, token), speaker, player);
   } else if (command === 'music' || command === 'playlist') {
     if (command === 'playlist' && !(typeof value === 'string' && PLAYLIST_URI.test(value))) throw invalid('Invalid playlist');
-    const what = command === 'music' ? await findMusic(token, value) : { context_uri: value };
+    if (command === 'playlist' && track !== undefined && !(typeof track === 'string' && TRACK_URI.test(track))) throw invalid('Invalid song');
+    const what = command === 'music'
+      ? await findMusic(token, value)
+      : { context_uri: value, ...(track ? { offset: { uri: track } } : {}) };
     await spotify(token, 'PUT', `/me/player/play?device_id=${device}`, what);
     playing = true;
   } else if (command === 'pause' || command === 'stop') {
@@ -263,10 +384,10 @@ export async function sendSpotifyCommand(store, { speaker, command, value }) {
   }
 
   await new Promise(resolve => setTimeout(resolve, SETTLE_MS));
-  const speakers = await readSpeakers(token);
+  const speakers = await readSpeakers(store, token);
   if (playing === null) return speakers;
   return speakers.map(each => {
-    if (each.id === speaker) return { ...each, playing, active: each.active || playing };
-    return playing ? { ...each, playing: false } : each;
+    if (each.id === speaker) return { ...each, playing, active: each.active || playing, asleep: each.asleep && !playing };
+    return playing ? { ...each, ...nowPlaying(null), active: false } : each;
   });
 }

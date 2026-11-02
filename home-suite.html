@@ -30,26 +30,51 @@
       <p class="suite-note" id="suiteNote" role="status">Loading…</p>
       <button class="button-primary suite-connect" type="button" id="suiteConnect" hidden>Connect Spotify</button>
 
-      <form class="suite-music" id="suiteMusic" hidden>
-        <label class="form-field suite-music-query">
-          <span>Play music</span>
-          <input type="text" id="suiteMusicQuery" maxlength="200" placeholder="Song or artist" autocomplete="off" required>
-        </label>
-        <label class="form-field suite-music-speaker">
-          <span>On</span>
-          <select id="suiteMusicSpeaker"></select>
-        </label>
-        <button class="button-primary" type="submit" id="suiteMusicPlay">Play</button>
-      </form>
-      <p class="suite-error" id="suiteMusicError" role="alert"></p>
+      <!-- The speakers on the left, the music on the right (stacked on narrow screens). -->
+      <div class="suite-layout" id="suiteLayout" hidden>
+        <section class="suite-speaker-panel" aria-labelledby="suiteSpeakersTitle">
+          <h2 class="suite-section-title" id="suiteSpeakersTitle">Speakers</h2>
+          <ul class="suite-speakers" id="suiteSpeakers"></ul>
+        </section>
 
-      <ul class="suite-speakers" id="suiteSpeakers" aria-label="Speakers"></ul>
+        <section class="suite-library" id="suiteLibrary" aria-label="Music">
+          <form class="suite-music" id="suiteMusic" hidden>
+            <label class="form-field suite-music-query">
+              <span class="suite-field-name">Play a song</span>
+              <input type="text" id="suiteMusicQuery" maxlength="200" placeholder="Song or artist" autocomplete="off" required>
+            </label>
+            <label class="form-field suite-music-speaker">
+              <span class="suite-field-name">On</span>
+              <select id="suiteMusicSpeaker"></select>
+            </label>
+            <button class="button-primary" type="submit" id="suiteMusicPlay">Play</button>
+          </form>
+          <p class="suite-error" id="suiteMusicError" role="alert"></p>
 
-      <section class="suite-playlists" id="suitePlaylists" aria-labelledby="suitePlaylistsTitle" hidden>
-        <h2 class="suite-section-title" id="suitePlaylistsTitle">Playlists</h2>
-        <p class="suite-note" id="suitePlaylistsNote" role="status"></p>
-        <ul class="suite-playlist-list" id="suitePlaylistList"></ul>
-      </section>
+          <div class="suite-playlists" id="suitePlaylists" hidden>
+            <div id="suitePlaylistsView">
+              <h2 class="suite-section-title" id="suitePlaylistsTitle">Playlists</h2>
+              <p class="suite-note" id="suitePlaylistsNote" role="status"></p>
+              <ul class="suite-playlist-list" id="suitePlaylistList" aria-labelledby="suitePlaylistsTitle"></ul>
+            </div>
+
+            <div class="suite-detail" id="suiteDetail" hidden>
+              <button class="suite-back" type="button" id="suiteBack">Playlists</button>
+              <div class="suite-detail-head">
+                <div class="suite-detail-art" id="suiteDetailArt"></div>
+                <div class="suite-detail-info" id="suiteDetailInfo">
+                  <h2 class="suite-detail-name" id="suiteDetailName"></h2>
+                  <p class="suite-detail-summary" id="suiteDetailSummary"></p>
+                  <button class="button-primary suite-play-all" type="button" id="suitePlayAll">Play</button>
+                  <p class="suite-note" id="suiteDetailNote" role="status"></p>
+                </div>
+              </div>
+              <ol class="suite-tracks" id="suiteTracks" aria-labelledby="suiteDetailName"></ol>
+              <p class="suite-note" id="suiteTracksNote" role="status"></p>
+            </div>
+          </div>
+        </section>
+      </div>
     </div>
   </main>
 

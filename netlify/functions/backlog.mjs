@@ -3,7 +3,7 @@ import { createHmac, randomBytes, scrypt as scryptCallback, timingSafeEqual } fr
 import { promisify } from 'node:util';
 import { DEBUG_LOG_KEY, recordCall, recordedStore, startRecording, takeRecording } from '../lib/debug-log.mjs';
 import { octopusConfigured, readEnergySummary, readSavedHistory, readSavedLive, setDebug, setLivePaused } from '../lib/octopus.mjs';
-import { connectSpotify, readSpotifyPlaylists, readSpotifySpeakers, sendSpotifyCommand, spotifyAuthUrl, spotifyConfigured } from '../lib/spotify.mjs';
+import { connectSpotify, readSpotifyPlaylists, readSpotifyPlaylistTracks, readSpotifySpeakers, sendSpotifyCommand, spotifyAuthUrl, spotifyConfigured } from '../lib/spotify.mjs';
 import { discordConfigured, readWattnickPanel, readWattnickStatus, saveWattnickSettings } from '../lib/wattnick.mjs';
 
 const STORE_NAME = 'public-game-backlog';
@@ -872,12 +872,17 @@ export default async (request, context) => {
 
       // ?home-suite: the speakers Spotify can see, for the Home Suite page (js/home-suite.js).
       // ?home-suite=playlists: the admin's playlists.
+      // ?home-suite=tracks&playlist=uri&offset=n: one page of a playlist's songs.
       if (params.has('home-suite')) {
         if (!session?.isAdmin) return respond(request, 403, { error: 'Only the admin can control the speakers' });
         if (!spotifyConfigured()) return respond(request, 200, { configured: false });
         try {
           if (params.get('home-suite') === 'playlists') {
             return respond(request, 200, { configured: true, ...(await readSpotifyPlaylists(statsStore())) });
+          }
+          if (params.get('home-suite') === 'tracks') {
+            const offset = Number(params.get('offset') || 0);
+            return respond(request, 200, { configured: true, ...(await readSpotifyPlaylistTracks(statsStore(), params.get('playlist'), offset)) });
           }
           return respond(request, 200, { configured: true, ...(await readSpotifySpeakers(statsStore())) });
         } catch (error) {

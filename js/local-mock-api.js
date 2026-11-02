@@ -24,7 +24,8 @@
   const mockSpeakers = [
     { id: 'kitchen', name: 'Kitchen', type: 'Speaker', active: true, online: true, playing: true, track: 'To Zanarkand', artist: 'Nobuo Uematsu', image: mockArt, volume: 40, supportsVolume: true },
     { id: 'living-room', name: 'Living Room', type: 'Speaker', active: false, online: true, playing: false, track: '', artist: '', volume: 25, supportsVolume: true },
-    { id: 'bedroom', name: 'Bedroom', type: 'Speaker', active: false, online: false, playing: false, track: '', artist: '', volume: 15, supportsVolume: true }
+    { id: 'bedroom', name: 'Bedroom', type: 'Speaker', active: false, online: false, playing: false, track: '', artist: '', volume: 15, supportsVolume: true },
+    { id: 'office', name: 'Office', type: 'Speaker', active: false, online: true, asleep: true, playing: false, track: '', artist: '', volume: null, supportsVolume: false }
   ];
 
   const GAMES_KEY = 'besaid-mock-backlog';
@@ -312,6 +313,27 @@
       // the time alone, so each answer carries on from the last.
       // Fake Home Suite speakers, for UI design only.
       if (url.searchParams.has('home-suite')) {
+        if (url.searchParams.get('home-suite') === 'tracks') {
+          const playlist = url.searchParams.get('playlist');
+          if (playlist === 'spotify:playlist:mock3') return json(200, { configured: true, restricted: true, total: null, nextOffset: null, tracks: [] });
+          const total = { 'spotify:playlist:mock1': 42, 'spotify:playlist:mock2': 118 }[playlist] || 8;
+          const offset = Number(url.searchParams.get('offset')) || 0;
+          const count = Math.min(50, total - offset);
+          return json(200, {
+            configured: true,
+            restricted: false,
+            total,
+            nextOffset: offset + count < total ? offset + count : null,
+            tracks: Array.from({ length: count }, (_, index) => ({
+              uri: `spotify:track:mock${offset + index + 1}`,
+              name: `Mock song ${offset + index + 1}`,
+              artist: 'Mock artist',
+              album: 'Mock album',
+              duration: 150000 + (offset + index) * 7000,
+              playable: true
+            }))
+          });
+        }
         if (url.searchParams.get('home-suite') === 'playlists') {
           return json(200, { configured: true, total: 4, playlists: [
             { uri: 'spotify:playlist:mock1', name: 'Besaid Evenings', owner: 'Kiwamari', tracks: 42, image: mockArt },
@@ -482,14 +504,15 @@
       if (body.command === 'volume') speaker.volume = body.value;
       if (body.command === 'move') {
         const from = mockSpeakers.find(other => other.active);
-        const { playing, track, artist, image } = from;
-        Object.assign(from, { active: false, playing: false, track: '', artist: '', image: '' });
-        Object.assign(speaker, { active: true, playing, track, artist, image });
+        const { playing, track, trackUri, artist, image } = from;
+        Object.assign(from, { active: false, playing: false, track: '', trackUri: '', artist: '', image: '' });
+        Object.assign(speaker, { active: true, asleep: false, volume: speaker.volume ?? 30, supportsVolume: true, playing, track, trackUri, artist, image });
       }
       if (['music', 'playlist', 'play'].includes(body.command)) {
         for (const other of mockSpeakers) {
-          if (other !== speaker) Object.assign(other, { active: false, playing: false, track: '', artist: '', image: '' });
+          if (other !== speaker) Object.assign(other, { active: false, playing: false, track: '', trackUri: '', artist: '', image: '' });
         }
+        if (body.track) speaker.trackUri = body.track;
         Object.assign(speaker, { active: true, playing: true, image: mockArt, track: body.command === 'play' ? speaker.track || 'Mock track' : `Mock track from ${body.value}`, artist: 'Mock artist' });
       }
       if (body.command === 'pause' || body.command === 'stop') speaker.playing = false;
