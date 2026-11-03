@@ -1,6 +1,7 @@
 // Home Suite page: the admin's controls for the Alexa speakers around the house. It's
 // linked from the admin panel on the profile page rather than the nav, as nobody else
-// can use it, and the site API refuses all of this to anyone but the admin.
+// can use it, and the site API refuses all of this to anyone but the admin. Anyone else
+// who opens the address is sent to the home page, including on signing out here.
 //
 // The speakers are reached through Spotify (netlify/lib/spotify.mjs). ?home-suite answers
 // { configured, connected, playlists, speakers: [{ id, name, type, active, online, asleep,
@@ -26,6 +27,7 @@
 // playlist's own order. Spotify still plays in the playlist's order, whatever's showing.
 (() => {
   const account = window.siteAccount;
+  const shell = document.getElementById('suiteShell');
   const note = document.getElementById('suiteNote');
   const refresh = document.getElementById('suiteRefresh');
   const connect = document.getElementById('suiteConnect');
@@ -778,11 +780,18 @@
       version++;
       clearSpeakers();
       refresh.hidden = true;
-      note.textContent = account.status === 'unavailable'
-        ? 'The account service is unavailable right now.'
-        : 'Only the admin can use this page.';
+      // The account service being down says nothing about who this is, so they stay and
+      // can try again. replace, so Back doesn't land here and bounce them straight away.
+      if (account.status !== 'unavailable') {
+        shell.hidden = true;
+        window.location.replace('index.html');
+        return;
+      }
+      shell.hidden = false;
+      note.textContent = 'The account service is unavailable right now.';
       return;
     }
+    shell.hidden = false;
     if (shownFor === account.user.username) return;
     shownFor = account.user.username;
     load();
